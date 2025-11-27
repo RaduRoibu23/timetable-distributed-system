@@ -1,0 +1,234 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\setstretch{1.15}
+
+\title{
+  {\Huge \textbf{Organizator distribuit de orare}}
+}
+
+\author{Roibu Radu-Gheorghe}
+
+\date{} % elimină data
+
+\begin{document}
+
+\maketitle
+
+
+\section{Context si motivatie}
+
+Proiectul \textit{Organizator distribuit de orare} isi propune sa modeleze si sa gestioneze, intr-un mod scalabil si robust, orarele scolare / universitare (discipline, grupe, sali, profesori si intervale orare), folosind o arhitectura bazata pe microservicii si tehnologii specifice sistemelor concurente si distribuite.
+
+Pe masura ce numarul disciplinelor, grupelor si salilor creste, iar constrangerile de orar devin tot mai complexe (evitarea suprapunerilor, respectarea disponibilitatilor profesorilor, folosirea eficienta a salilor), o solutie monolitica devine greu de extins si de mentinut. O platforma distribuita permite:
+\begin{itemize}[noitemsep]
+  \item procesarea simultana a mai multor cereri de generare sau actualizare a orarului;
+  \item scalarea orizontala a componentelor critice (de exemplu, motorul de generare a orarelor);
+  \item separarea clara a responsabilitatilor intre servicii si o mai buna rezilienta la erori.
+\end{itemize}
+
+Structura proiectului respecta cerintele din enuntul oficial al proiectului SCD 2025, privind utilizarea autentificarii SSO, a microserviciilor containerizate, a unei baze de date relationale si a cel putin unui modul scalabil orizontal cu functionalitati avansate specifice sistemelor concurente si distribuite.
+
+\section{Obiectivul proiectului}
+
+Scopul proiectului este de a realiza o platforma web distribuita care sa ofere tuturor actorilor implicati (secretariat, profesori, studenti) functionalitatile esentiale pentru lucrul cu orarele:
+
+\begin{itemize}[noitemsep]
+  \item administrarea disciplinelor, grupelor, profesorilor si salilor;
+  \item definirea si actualizarea orarelor, cu verificarea automata a suprapunerilor;
+  \item generarea automata de orare pe baza unor constrangeri si preferinte;
+  \item notificarea utilizatorilor cu privire la modificarile aparute in orar;
+  \item expunerea unei interfete REST API care poate fi folosita atat de un frontend web, cat si de instrumente de automatizare sau integrare.
+\end{itemize}
+
+\section{Arhitectura generala a solutiei}
+
+\subsection{Vedere de ansamblu}
+
+Solutia va fi implementata ca un set de microservicii, fiecare rulat in propriul container Docker si orchestrate folosind Docker Swarm. Fiecare componenta va fi definita ca serviciu in fisierul de tip stack (\texttt{.yml}), iar comunicatia dintre servicii se va realiza prin numele DNS generate de Docker si prin variabile de mediu.
+
+Arhitectura include urmatoarele categorii de componente:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Servicii open-source}:
+    \begin{itemize}[noitemsep]
+      \item \textbf{Keycloak} -- serviciu de autentificare SSO si management de identitati;
+      \item \textbf{PostgreSQL} -- baza de date relationala principala;
+      \item \textbf{RabbitMQ} -- broker de mesaje pentru procesare asincrona;
+      \item \textbf{Nginx / API Gateway} -- punct unic de intrare pentru apelurile HTTP catre microservicii;
+      \item (optional) \textbf{Redis} -- cache pentru orare frecvent accesate;
+      \item (optional) \textbf{Prometheus} si \textbf{Grafana} -- colectare si vizualizare metrice pentru monitorizare.
+    \end{itemize}
+  \item \textbf{Microservicii dezvoltate } (componente proprii):
+    \begin{itemize}[noitemsep]
+      \item \textbf{Timetable Management Service};
+      \item \textbf{Scheduling Engine Service};
+      \item \textbf{Notifications Service} (optional, dar planificat).
+    \end{itemize}
+\end{itemize}
+
+Toate serviciile vor fi conectate in una sau mai multe retele Docker de tip overlay, configurate astfel incat fiecare serviciu sa poata comunica doar cu serviciile necesare (de exemplu, serviciile de business vor comunica cu baza de date si cu RabbitMQ).
+
+\subsection{Containerele ce vor fi folosite}
+
+La nivel de stack Docker Swarm, vor fi definite cel putin urmatoarele servicii:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{keycloak-service} -- instanta Keycloak pentru SSO;
+  \item \textbf{db-service} -- baza de date PostgreSQL;
+  \item \textbf{rabbitmq-service} -- broker de mesaje RabbitMQ;
+  \item \textbf{api-gateway-service} -- Nginx sau alt gateway HTTP;
+  \item \textbf{timetable-service} -- microserviciu propriu pentru gestionarea orarelor;
+  \item \textbf{scheduling-engine-service} -- microserviciu propriu pentru generarea automata a orarelor (modul scalabil orizontal);
+  \item \textbf{notifications-service} -- microserviciu propriu pentru procesarea evenimentelor si trimiterea de notificari;
+  \item (optional) \textbf{redis-service} -- cache pentru orare si rezultate frecvent accesate;
+  \item (optional) \textbf{monitoring-services} -- Prometheus, Grafana.
+\end{itemize}
+
+\subsection{Componente proprii (microservicii de business)}
+
+\paragraph{Timetable Management Service.}
+Acest serviciu expune API-urile principale pentru gestionarea entitatilor din domeniu (discipline, grupe, sali, profesori, sloturi orare) si pentru administrarea orarelor efective. El va asigura logica de validare a cererilor de modificare a orarului, verificari simple de suprapuneri si interactiunea cu baza de date prin intermediul unui ORM (de exemplu, SQLAlchemy).
+
+\paragraph{Scheduling Engine Service.}
+Acest serviciu reprezinta motorul de generare si ajustare automata a orarelor. El primeste cereri de generare (sau recalculare) a orarului pentru o anumita grupa, un anumit set de discipline sau pentru un intreg semestru. Cererile vor fi plasate intr-o coada RabbitMQ, iar una dintre replicile acestui serviciu va procesa job-ul, va aplica algoritmi de alocare si va salva rezultatele in baza de date. Serviciul va fi configurat cu mai multe replici in Swarm, reprezentand modulul scalabil orizontal al aplicatiei.
+
+\paragraph{Notifications Service.}
+Acest serviciu consuma evenimente din brokerul de mesaje (de exemplu, ``orar generat'', ``curs mutat'', ``profesor indisponibil'') si declanseaza notificari catre utilizatori (email, mesaje interne in aplicatie sau alte mecanisme). De asemenea, el poate genera rapoarte periodice sau agregate privind modificarile de orar.
+
+\section{Module si functionalitati}
+
+\subsection{Module comune}
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Modul de autentificare} (Keycloak):
+    \begin{itemize}[noitemsep]
+      \item gestionarea autentificarii utilizatorilor (SSO, OAuth2 / OpenID Connect);
+      \item emiterea de token-uri de acces utilizate de microserviciile proprii.
+    \end{itemize}
+  \item \textbf{Modul de profil utilizator si roluri} (User Profile integrat in Timetable Management Service):
+    \begin{itemize}[noitemsep]
+      \item extrage informatii din token-ul Keycloak;
+      \item creeaza si actualizeaza profilul intern al utilizatorului;
+      \item gestioneaza rolurile: \textit{admin}, \textit{secretariat}, \textit{profesor}, \textit{student}.
+    \end{itemize}
+  \item \textbf{Modul de baza de date} (PostgreSQL + ORM):
+    \begin{itemize}[noitemsep]
+      \item stocheaza entitatile de business (utilizatori, roluri, discipline, grupe, sali, orare);
+      \item asigura persistenta si consistenta datelor prin tranzactii.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Module proprii (avansate)}
+
+\paragraph{Timetable Management Module.}
+Functionalitati principale:
+\begin{itemize}[noitemsep]
+  \item administrarea disciplinelor, grupelor, profesorilor si salilor;
+  \item definirea intervalelor orare (zi, ora inceput, ora sfarsit);
+  \item gestionarea orarelor (creare, modificare, vizualizare);
+  \item verificari de baza pentru evitarea suprapunerilor evidente.
+\end{itemize}
+
+\paragraph{Scheduling Engine Module.}
+Functionalitati principale:
+\begin{itemize}[noitemsep]
+  \item preluarea cererilor de generare sau ajustare a orarelor dintr-o coada RabbitMQ;
+  \item aplicarea unor algoritmi de alocare a disciplinelor pe sloturi orare, respectand constrangeri precum:
+    \begin{itemize}[noitemsep]
+      \item disponibilitatea profesorilor;
+      \item disponibilitatea salilor;
+      \item evitarea suprapunerilor pentru aceeasi grupa;
+      \item preferinte de orar (de exemplu, evitarea cursurilor foarte tarzii);
+    \end{itemize}
+  \item salvarea solutiei gasite in baza de date;
+  \item generarea de rapoarte de conflict (de exemplu, cand nu exista solutie completa).
+\end{itemize}
+
+\paragraph{Notifications and Updates Module.}
+Functionalitati principale:
+\begin{itemize}[noitemsep]
+  \item ascultarea evenimentelor emise de celelalte microservicii (orar nou, modificare orar, anulare curs);
+  \item trimiterea de notificari catre utilizatorii afectati;
+  \item logarea actiunilor relevante in entitatea \textit{AuditLog};
+  \item generarea de rapoarte simple (de exemplu, cate modificari au avut loc intr-un anumit interval).
+\end{itemize}
+
+\subsection{Fluxuri principale de utilizare}
+
+Cateva scenarii reprezentative pe care platforma le va acoperi sunt:
+
+\begin{itemize}[noitemsep]
+  \item Secretaria creeaza un nou semestru, defineste disciplinele, grupele si salile disponibile;
+  \item Se lanseaza o cerere de generare automata a orarului pentru un set de grupe;
+  \item Scheduling Engine Service primeste job-ul, calculeaza un orar valid si salveaza rezultatul;
+  \item Studentii si profesorii se autentifica prin Keycloak si vizualizeaza orarul personalizat;
+  \item Atunci cand o sala devine indisponibila sau un profesor anunta o constrangere noua, se genereaza o cerere de recalculare partiala a orarului;
+  \item Notifications Service trimite notificari catre utilizatorii afectati de modificarile de orar.
+\end{itemize}
+
+\section{Functionalitati avansate}
+
+Pentru a demonstra concepte specifice sistemelor concurente si distribuite, proiectul va include urmatoarele functionalitati avansate:
+
+\subsection{1. Engine distribuit de generare automata a orarelor}
+
+Scheduling Engine Service reprezinta un modul de procesare intensiva care primeste cereri dintr-o coada RabbitMQ si ruleaza algoritmi de generare a orarelor pe baza unui set de constrangeri. Acest serviciu va fi configurat cu mai multe replici in Docker Swarm, astfel incat mai multe job-uri sa poata fi procesate in paralel. Functionalitatea ilustreaza:
+
+\begin{itemize}[noitemsep]
+  \item scalare orizontala (replicarea unui microserviciu);
+  \item distribuirea sarcinii de lucru intre workeri;
+  \item izolarea unui modul complex intr-un serviciu dedicat.
+\end{itemize}
+
+\subsection{2. Procesare asincrona cu cozi de mesaje}
+
+Platforma va utiliza RabbitMQ ca broker de mesaje pentru a decupla microserviciile. Cererile de generare sau recalculare a orarului, precum si evenimentele de modificare a orarului vor fi modelate ca mesaje in cozi, procesate asincron de workerii din Scheduling Engine Service si Notifications Service. Aceasta abordare permite:
+
+\begin{itemize}[noitemsep]
+  \item reducerea timpului de raspuns pentru operatiile initiate de utilizator;
+  \item cresterea robustetii in fata erorilor temporare;
+  \item scalarea independenta a modulelor care proceseaza volume mari de mesaje.
+\end{itemize}
+
+\subsection{3. Mecanisme de consistenta si control concurent pentru resurse}
+
+Rezervarea salilor, a profesorilor si a intervalelor orare reprezinta o problema intrinseca de consistenta a datelor. Proiectul va include mecanisme explicite pentru:
+
+\begin{itemize}[noitemsep]
+  \item evitarea suprapunerilor (un profesor sau o grupa nu poate avea doua cursuri in acelasi timp);
+  \item evitarea conflictelor de sala (aceeasi sala nu poate gazdui doua cursuri in acelasi interval);
+  \item verificari concurente la nivelul bazei de date, folosind tranzactii si constrangeri adecvate;
+  \item validari suplimentare in logica de business pentru a preveni stari inconsistente.
+\end{itemize}
+
+\section{Tehnologii utilizate}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Limbaj backend}: Python;
+  \item \textbf{Framework REST API}: FastAPI (sau alternativ Flask / Django Rest Framework);
+  \item \textbf{ORM}: SQLAlchemy;
+  \item \textbf{Baza de date}: PostgreSQL;
+  \item \textbf{Autentificare si autorizare}: Keycloak (SSO, OAuth2 / OpenID Connect);
+  \item \textbf{Broker de mesaje}: RabbitMQ;
+  \item \textbf{Cache} (optional): Redis;
+  \item \textbf{Monitorizare} (optional): Prometheus + Grafana;
+  \item \textbf{Containerizare}: Docker;
+  \item \textbf{Orchestrare}: Docker Swarm (stack definit intr-un fisier \texttt{.yml});
+  \item \textbf{Testare API}: Postman si scripturi automate acolo unde este cazul;
+  \item \textbf{Control versiuni}: Git.
+\end{itemize}
+
+\section{Concluzii pentru Milestone 1}
+
+Acest document defineste tema proiectului \textit{Organizator distribuit de orare}, contextul si motivatia alegerii sale, arhitectura generala a solutiei, modulele principale, functionalitatile avansate, precum si tehnologiile care vor fi utilizate. 
+
+Structura propusa respecta cerintele generale ale proiectului SCD 2025: utilizarea autentificarii SSO, integrarea unei baze de date relationale printr-un ORM, separarea aplicatiei in microservicii containerizate, folosirea unui stack Docker Swarm, existenta unui modul scalabil orizontal si integrarea unor functionalitati avansate relevante pentru sisteme concurente si distribuite.
+
+In etapele urmatoare (Milestone 2 si Milestone 3) se va trece la implementarea efectiva a microserviciilor, integrarea lor in stack-ul Docker Swarm, scrierea testelor si realizarea unei demonstratii functionale a aplicatiei complete.
+
+\end{document}

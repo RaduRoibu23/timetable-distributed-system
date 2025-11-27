@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+env/
+
+# Byte-compiled
+*.pyc
+
+# Docker
+*.log
+*.pid
+
+# Build artifacts
+build/
+dist/
+
+# LaTeX junk
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# IDE
+.vscode/
+.idea/
+
+# Env files
+.env
+.env.local
+.env.dev
+.env.prod
+
+# Docker volumes
+db_data/
