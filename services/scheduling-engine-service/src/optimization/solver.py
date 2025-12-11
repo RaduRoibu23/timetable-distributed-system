@@ -1,1 +1,0 @@
-# Solver / heuristic algorithms placeholder

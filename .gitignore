@@ -1,38 +1,105 @@
-# Python
-__pycache__/
-*.pyc
+########################
+# OS / Editor garbage  #
+########################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.swp
+*.swo
+*.swn
+*.tmp
 
-# Virtual environments
+########################
+# Python bytecode      #
+########################
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+########################
+# Virtual envs         #
+########################
+.venv/
 venv/
 env/
+ENV/
+.venv*/
+venv*/
+env*/
 
-# Byte-compiled
-*.pyc
-
-# Docker
-*.log
-*.pid
-
-# Build artifacts
+########################
+# Build / dist         #
+########################
 build/
 dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.egg
 
-# LaTeX junk
-*.aux
+########################
+# Test / tooling       #
+########################
+.pytest_cache/
+.tox/
+.nox/
+.mypy_cache/
+.pyre/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+########################
+# Logs                 #
+########################
 *.log
-*.out
-*.toc
-*.synctex.gz
+logs/
+log/
 
-# IDE
+########################
+# IDE / Editor config  #
+########################
 .vscode/
 .idea/
+*.iml
 
-# Env files
+########################
+# Local config & secrets
+########################
+# local env files (nu urcăm credențiale)
 .env
-.env.local
-.env.dev
-.env.prod
+.env.*
+!.env.example    # dacă vrei un template public
 
-# Docker volumes
-db_data/
+# token de test – doar local, NU în git
+token.json
+
+########################
+# Databases (local)    #
+########################
+*.sqlite3
+*.db
+*.db-journal
+
+########################
+# Node / frontend (dacă vei adăuga ceva)
+########################
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+########################
+# Docker artefacts     #
+########################
+# (NU ignorăm Dockerfile / docker-compose.yml)
+docker-data/
+*.pid
+
+########################
+# Misc                 #
+########################
+*.bak
+*.orig
+*.rej

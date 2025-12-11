@@ -1,1 +1,0 @@
-# Shared logging setup placeholder
