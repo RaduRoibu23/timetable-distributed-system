@@ -1,9 +1,8 @@
 # timetable-distributed-system (SCD)
 
-Sistem distribuit pentru gestionarea orarelor (Timetable Management), cu autentificare/SSO prin Keycloak si backend REST in FastAPI.
----
 
-## Status (pana acum)
+
+### Status (pana acum)
 
 Merge stabil pe Docker Compose:
 - Keycloak + realm dedicat + client OIDC
