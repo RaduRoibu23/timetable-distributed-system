@@ -7,3 +7,4 @@ To test the authentication flow:
 2. Start the timetable-management-service
 3. Run:
    ./test_auth.sh
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

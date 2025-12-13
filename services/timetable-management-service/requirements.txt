@@ -3,3 +3,5 @@ uvicorn
 python-jose
 python-dotenv
 requests
+sqlalchemy
+psycopg2-binary

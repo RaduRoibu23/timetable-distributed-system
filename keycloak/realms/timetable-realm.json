@@ -1,0 +1,95 @@
+{
+  "realm": "timetable-realm",
+  "enabled": true,
+  "sslRequired": "external",
+
+  "roles": {
+    "realm": [
+      { "name": "admin" },
+      { "name": "professor" },
+      { "name": "student" },
+      { "name": "secretariat" }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "timetable-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+
+      "rootUrl": "http://localhost:8000",
+      "baseUrl": "http://localhost:8000",
+
+      "redirectUris": [
+        "http://localhost:8000/*",
+        "http://localhost:8000/docs/oauth2-redirect"
+      ],
+      "webOrigins": [
+        "http://localhost:8000"
+      ],
+
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8000/*"
+      }
+    }
+  ],
+
+  "users": [
+    {
+      "username": "admin1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Radu",
+      "lastName": "Roibu",
+      "email": "admin@admin.com",
+      "credentials": [
+        { "type": "password", "value": "admin1", "temporary": false }
+      ],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "professor1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bogdan",
+      "lastName": "Mocanu",
+      "email": "professor@professor.com",
+      "credentials": [
+        { "type": "password", "value": "professor1", "temporary": false }
+      ],
+      "realmRoles": ["professor"]
+    },
+    {
+      "username": "student1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Andrei",
+      "lastName": "Voicu",
+      "email": "student@student.com",
+      "credentials": [
+        { "type": "password", "value": "student1", "temporary": false }
+      ],
+      "realmRoles": ["student"]
+    },
+    {
+      "username": "secretariat1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alexandra",
+      "lastName": "Corcodel",
+      "email": "secretariat@secretariat.com",
+      "credentials": [
+        { "type": "password", "value": "secretariat1", "temporary": false }
+      ],
+      "realmRoles": ["secretariat"]
+    }
+  ]
+}

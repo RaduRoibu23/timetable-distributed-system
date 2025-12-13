@@ -2,12 +2,15 @@ from datetime import time
 from typing import List
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_token  # foloseste exact acelasi dependency ca /me
 from app.db import get_db
 from app.models import Lesson as LessonModel
+
+from fastapi import HTTPException
+
 
 router = APIRouter(
     prefix="/lessons",
@@ -31,9 +34,8 @@ class LessonCreate(LessonBase):
 
 class LessonRead(LessonBase):
     id: int
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        orm_mode = True
 
 
 # ======= Endpoints =======
@@ -64,3 +66,14 @@ def list_lessons(
 ) -> List[LessonModel]:
     lessons = db.query(LessonModel).all()
     return lessons
+
+@router.get("/{lesson_id}", response_model=LessonRead)
+def get_lesson(
+    lesson_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_token),
+) -> LessonModel:
+    lesson = db.query(LessonModel).filter(LessonModel.id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    return lesson
