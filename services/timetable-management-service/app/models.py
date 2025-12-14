@@ -12,3 +12,10 @@ class Lesson(Base):
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
     location = Column(String(100), nullable=True)
+
+class Room(Base):
+    __tablename__ = "rooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    capacity = Column(Integer, nullable=False)
