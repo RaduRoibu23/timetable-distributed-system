@@ -61,7 +61,7 @@ EOF
 }
 
 # Teste pentru fiecare rol
-test_user "admin1"       "admin1"       "Admin"
+test_user "admin1"       "admin1"      "Admin"
 test_user "professor1"        "professor1"        "Professor"
 test_user "secretariat1" "secretariat1" "Secretariat"
 test_user "student1"     "student1"     "Student"

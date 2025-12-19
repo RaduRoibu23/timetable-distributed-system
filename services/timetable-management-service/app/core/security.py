@@ -36,7 +36,7 @@ def verify_token(credentials=Depends(security)):
             token,
             jwk,                         # IMPORTANT: use raw JWK
             algorithms=[jwk["alg"]],
-            issuer=settings.KEYCLOAK_REALM_URL,
+            issuer=settings.KEYCLOAK_ISSUER,
             options={"verify_aud": False}
         )
 
