@@ -7,8 +7,10 @@
     "realm": [
       { "name": "admin" },
       { "name": "professor" },
+      { "name": "secretariat" },
       { "name": "student" },
-      { "name": "secretariat" }
+      { "name": "scheduler" },
+      { "name": "sysadmin" }
     ]
   },
 
@@ -21,7 +23,7 @@
       "publicClient": true,
       "directAccessGrantsEnabled": true,
 
-      "standardFlowEnabled": false,
+      "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
 
@@ -44,52 +46,76 @@
 
   "users": [
     {
-      "username": "admin1",
+      "username": "admin01",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Radu",
       "lastName": "Roibu",
-      "email": "admin@admin.com",
+      "email": "admin01@timetable.local",
       "credentials": [
-        { "type": "password", "value": "admin1", "temporary": false }
+        { "type": "password", "value": "admin01", "temporary": false }
       ],
       "realmRoles": ["admin"]
     },
     {
-      "username": "professor1",
+      "username": "professor01",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Bogdan",
       "lastName": "Mocanu",
-      "email": "professor@professor.com",
+      "email": "professor01@timetable.local",
       "credentials": [
-        { "type": "password", "value": "professor1", "temporary": false }
+        { "type": "password", "value": "professor01", "temporary": false }
       ],
       "realmRoles": ["professor"]
     },
     {
-      "username": "student1",
-      "enabled": true,
-      "emailVerified": true,
-      "firstName": "Andrei",
-      "lastName": "Voicu",
-      "email": "student@student.com",
-      "credentials": [
-        { "type": "password", "value": "student1", "temporary": false }
-      ],
-      "realmRoles": ["student"]
-    },
-    {
-      "username": "secretariat1",
+      "username": "secretariat01",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Alexandra",
       "lastName": "Corcodel",
-      "email": "secretariat@secretariat.com",
+      "email": "secretariat01@timetable.local",
       "credentials": [
-        { "type": "password", "value": "secretariat1", "temporary": false }
+        { "type": "password", "value": "secretariat01", "temporary": false }
       ],
       "realmRoles": ["secretariat"]
+    },
+    {
+      "username": "scheduler01",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Scheduler",
+      "lastName": "User",
+      "email": "scheduler01@timetable.local",
+      "credentials": [
+        { "type": "password", "value": "scheduler01", "temporary": false }
+      ],
+      "realmRoles": ["scheduler"]
+    },
+    {
+      "username": "sysadmin01",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sysadmin",
+      "lastName": "User",
+      "email": "sysadmin01@timetable.local",
+      "credentials": [
+        { "type": "password", "value": "sysadmin01", "temporary": false }
+      ],
+      "realmRoles": ["sysadmin"]
+    },
+    {
+      "username": "student01",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Andrei",
+      "lastName": "Voicu",
+      "email": "student01@timetable.local",
+      "credentials": [
+        { "type": "password", "value": "student01", "temporary": false }
+      ],
+      "realmRoles": ["student"]
     }
   ]
 }
