@@ -87,6 +87,66 @@ function rolesFromToken(){
   return roles;
 }
 
+// Role -> actions mapping. Each action has id, label and demo api path.
+const ROLE_ACTIONS = {
+  admin: [
+    { id: 'create-room', label: 'Create room (admin)', apiPath: '/rooms' },
+    { id: 'manage-users', label: 'Manage users (admin)', apiPath: '/users' }
+  ],
+  scheduler: [
+    { id: 'run-scheduler', label: 'Run scheduler', apiPath: '/schedule/run' }
+  ],
+  professor: [
+    { id: 'my-lessons', label: 'My lessons', apiPath: '/lessons/mine' }
+  ],
+  student: [
+    { id: 'my-timetable', label: 'My timetable', apiPath: '/me' }
+  ]
+};
+
+function renderRoleActions(){
+  const list = $('actions-list');
+  list.innerHTML = '';
+  const roles = rolesFromToken();
+  const seen = new Set();
+  roles.forEach(r => {
+    const actions = ROLE_ACTIONS[r] || [];
+    actions.forEach(a => {
+      if (seen.has(a.id)) return; seen.add(a.id);
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = a.label;
+      btn.dataset.action = a.id;
+      btn.dataset.apipath = a.apiPath;
+      btn.addEventListener('click', async () => {
+        try{
+          await performRoleAction(r, a);
+        } catch(err){
+          $('api-result').textContent = String(err.message || err);
+        }
+      });
+      list.appendChild(btn);
+    });
+  });
+  if (!list.children.length){
+    const p = document.createElement('div'); p.className='hint'; p.textContent='Nicio acțiune disponibilă pentru rolurile tale.'; list.appendChild(p);
+  }
+}
+
+async function performRoleAction(requiredRole, action){
+  const roles = rolesFromToken();
+  if (!roles.includes(requiredRole)){
+    throw new Error('Nu ai permisiunea pentru această acțiune.');
+  }
+  $('api-result').textContent = 'Se execută acțiunea...';
+  try{
+    const data = await apiGet(action.apiPath);
+    $('api-result').textContent = JSON.stringify(data, null, 2);
+  } catch (err){
+    $('api-result').textContent = `Eroare API: ${String(err.message || err)}`;
+  }
+}
+
 function buildUserLabel(){
   const tk = accessToken ? decodeJwt(accessToken) : null;
   if (!tk) return '—';

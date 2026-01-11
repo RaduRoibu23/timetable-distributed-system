@@ -228,6 +228,9 @@ a:hover{ text-decoration: underline; }
 .pill.warn{ border-color: rgba(255,209,102,0.40); background: rgba(255,209,102,0.10); }
 .pill.info{ border-color: rgba(110,168,254,0.40); background: rgba(110,168,254,0.10); }
 
+.actions-grid{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+.action-small{ padding:8px 10px; font-size:13px }
+
 .tabs{
   display:flex;
   gap: 8px;
