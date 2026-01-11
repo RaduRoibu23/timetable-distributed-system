@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# rulează corect indiferent din ce director îl apelezi
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default-uri (nu mai dai nimic din linia de comandă)
+export KEYCLOAK_BASE_URL="${KEYCLOAK_BASE_URL:-http://localhost:8181}"
+export REALM="${REALM:-timetable-realm}"
+export CLIENT_ID="${CLIENT_ID:-timetable-backend}"
+export BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
+
+# Admin master (dacă le schimbi în stack/compose, modifici aici o singură dată)
+export ADMIN_USER="${ADMIN_USER:-admin}"
+export ADMIN_PASS="${ADMIN_PASS:-admin}"
+
+exec "${ROOT_DIR}/demos/seed_keycloak.sh"

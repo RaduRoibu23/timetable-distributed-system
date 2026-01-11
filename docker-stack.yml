@@ -74,6 +74,22 @@ services:
     volumes:
       - /home/radu/scd/timetable-distributed-system/services/timetable-management-service/app:/app/app:ro
 
+  timetable_frontend:
+    image: roiburadu/timetable-frontend:dev
+    ports:
+      - "3000:80"
+    networks:
+      - scd-net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+        max_attempts: 10
+      placement:
+        constraints:
+          - node.role == manager
+
 
 volumes:
   scd_postgres_data:

@@ -28,5 +28,13 @@ services:
     depends_on:
       - postgres
 
+  frontend:
+    build: ./services/frontend
+    container_name: scd_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - keycloak
+
 volumes:
   scd_postgres_data:
