@@ -333,12 +333,12 @@ function wireUI(){
   $('api-base').textContent = API_BASE;
 
   $('btn-fill-admin').addEventListener('click', () => {
-    $('username').value = 'admin';
-    $('password').value = 'admin';
+    $('username').value = 'admin01';
+    $('password').value = 'admin01';
   });
   $('btn-fill-student').addEventListener('click', () => {
-    $('username').value = 'student';
-    $('password').value = 'student';
+    $('username').value = 'student01';
+    $('password').value = 'student01';
   });
 
   $('login-form').addEventListener('submit', async (e) => {
