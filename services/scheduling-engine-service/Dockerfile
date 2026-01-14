@@ -2,27 +2,26 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy requirements
-COPY requirements.txt .
+# Copy requirements (from services/scheduling-engine-service/)
+COPY services/scheduling-engine-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY app/ /app/app/
+# Copy application code (from services/scheduling-engine-service/app/)
+COPY services/scheduling-engine-service/app/ /app/app/
 
-# Copy shared code from timetable-management-service
-# Build context should be from project root, so we can access sibling services
-COPY services/timetable-management-service/app/models.py /app/shared/models.py
-COPY services/timetable-management-service/app/db.py /app/shared/db.py
-COPY services/timetable-management-service/app/services/ /app/shared/services/
-COPY services/timetable-management-service/app/core/ /app/shared/core/
+# Copy necessary code from timetable-management-service directly into app/
+# This duplicates code but avoids import path issues
+COPY services/timetable-management-service/app/models.py /app/app/shared_models.py
+COPY services/timetable-management-service/app/db.py /app/app/shared_db.py
+COPY services/timetable-management-service/app/services/timetable_generator.py /app/app/shared_timetable_generator.py
+COPY services/timetable-management-service/app/services/notifications.py /app/app/shared_notifications.py
+COPY services/timetable-management-service/app/services/audit.py /app/app/shared_audit.py
 
-# Create __init__.py for shared package
-RUN touch /app/shared/__init__.py && \
-    touch /app/shared/services/__init__.py && \
-    touch /app/shared/core/__init__.py
-
-# Set shared code path
+# Set shared code path and PYTHONPATH
+# app module is at /app/shared/app/, so we need /app/shared in PYTHONPATH
 ENV SHARED_CODE_PATH=/app/shared
+ENV PYTHONPATH=/app/shared
 
-# Run worker
-CMD ["python", "-m", "app.main"]
+# Run worker directly (not as module) to avoid path conflicts
+# PYTHONPATH is set via ENV, and we also add it in main.py
+CMD ["python", "/app/app/main.py"]
