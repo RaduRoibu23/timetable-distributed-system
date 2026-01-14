@@ -3,8 +3,8 @@
 # Config Keycloak
 KC_TOKEN_URL="http://localhost:8181/realms/timetable-realm/protocol/openid-connect/token"
 CLIENT_ID="timetable-backend"
-USERNAME="student1"
-PASSWORD="student1"
+USERNAME="student01"
+PASSWORD="student01"
 
 # 1. Obține tokenul
 curl -s -X POST "$KC_TOKEN_URL" \
