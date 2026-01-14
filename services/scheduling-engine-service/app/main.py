@@ -5,52 +5,17 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
 from datetime import datetime
 
 import pika
 
-# Import shared code (copied directly into app/)
-# Fix imports: shared_models imports from app.db, so we need to create app module first
-import types
-import importlib.util
-
-# Create fake app module for shared_models imports
-app_module = types.ModuleType('app')
-sys.modules['app'] = app_module
-
-# Import db first and put it in app.db
-db_spec = importlib.util.spec_from_file_location("app.db", "/app/app/shared_db.py")
-db_module = importlib.util.module_from_spec(db_spec)
-sys.modules['app.db'] = db_module
-db_spec.loader.exec_module(db_module)
-app_module.db = db_module
-
-# Now import models (which needs app.db)
-models_spec = importlib.util.spec_from_file_location("app.models", "/app/app/shared_models.py")
-models_module = importlib.util.module_from_spec(models_spec)
-sys.modules['app.models'] = models_module
-models_spec.loader.exec_module(models_module)
-app_module.models = models_module
-
-# Import services
-generator_spec = importlib.util.spec_from_file_location("app.services.timetable_generator", "/app/app/shared_timetable_generator.py")
-generator_module = importlib.util.module_from_spec(generator_spec)
-sys.modules['app.services.timetable_generator'] = generator_module
-generator_spec.loader.exec_module(generator_module)
-
-notifications_spec = importlib.util.spec_from_file_location("app.services.notifications", "/app/app/shared_notifications.py")
-notifications_module = importlib.util.module_from_spec(notifications_spec)
-sys.modules['app.services.notifications'] = notifications_module
-notifications_spec.loader.exec_module(notifications_module)
-
-# Extract what we need
-TimetableJob = models_module.TimetableJob
-SchoolClass = models_module.SchoolClass
-SessionLocal = db_module.SessionLocal
-generate_timetable_for_class = generator_module.generate_timetable_for_class
-notifications_service = notifications_module
+# Import from shared package
+from timetable_shared.db import SessionLocal
+from timetable_shared.models import TimetableJob, SchoolClass
+from timetable_shared.services.timetable_generator import generate_timetable_for_class
+from timetable_shared.services import notifications as notifications_service
+from timetable_shared.services import audit as audit_service
 
 
 def get_rabbitmq_url() -> str:
@@ -92,7 +57,6 @@ def process_job(job_id: int, class_id: int, db_session):
         
         # Log audit action
         try:
-            from app.services import audit as audit_service
             audit_service.log_action(
                 db_session,
                 username="scheduling-engine",
@@ -101,9 +65,6 @@ def process_job(job_id: int, class_id: int, db_session):
                 resource_id=job_id,
                 details=f"Generated timetable for class {class_id} with {len(entries)} entries",
             )
-        except ImportError:
-            # Audit service might not be available, skip silently
-            pass
         except Exception as e:
             print(f"[Worker] Failed to log audit action: {e}")
         
@@ -151,9 +112,6 @@ def callback(ch, method, properties, body, db_session_factory):
 def main():
     """Main worker loop."""
     print("[Worker] Starting Scheduling Engine Service...")
-    
-    # Use shared db module for consistency
-    # The shared db module already has the engine and SessionLocal configured
     
     # Setup RabbitMQ connection
     rabbitmq_url = get_rabbitmq_url()

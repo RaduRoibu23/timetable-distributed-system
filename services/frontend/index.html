@@ -89,6 +89,14 @@
             <div id="actions-list" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap"></div>
           </div>
 
+          <div id="results-section" class="section" style="margin-top:20px; display:none">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+              <h3 id="results-title">Rezultate</h3>
+              <button class="btn" id="btn-clear-results" style="padding:6px 10px; font-size:12px">Șterge</button>
+            </div>
+            <div id="results-content" style="max-height:600px; overflow-y:auto"></div>
+          </div>
+
           <div class="row row-wrap" style="margin-top:12px">
             <button class="btn" id="btn-refresh">Refresh token</button>
             <button class="btn btn-danger" id="btn-logout">Logout</button>

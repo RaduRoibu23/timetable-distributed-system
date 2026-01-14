@@ -312,3 +312,195 @@ code.inline{
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.10);
 }
+
+/* Results Section */
+#results-section {
+  margin-top: 20px;
+}
+
+#results-content {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+/* Timetable Table */
+.timetable-container {
+  overflow-x: auto;
+}
+
+.timetable-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.timetable-table th {
+  background: rgba(110,168,254,0.15);
+  color: var(--text);
+  padding: 10px 8px;
+  text-align: center;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+
+.timetable-table td {
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  text-align: center;
+  vertical-align: top;
+}
+
+.timetable-table .hour-label {
+  background: rgba(255,255,255,0.06);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.timetable-cell {
+  min-width: 120px;
+  min-height: 50px;
+}
+
+.timetable-cell.empty {
+  color: var(--muted);
+  opacity: 0.4;
+}
+
+.cell-subject {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.cell-room {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Data Tables */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  background: rgba(110,168,254,0.15);
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.data-table tr:hover {
+  background: rgba(255,255,255,0.04);
+}
+
+/* User Info Display */
+.user-info-display {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.info-row {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row strong {
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+/* Notifications List */
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notification-item {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
+.notification-item.unread {
+  border-color: rgba(110,168,254,0.5);
+  background: rgba(110,168,254,0.08);
+}
+
+.notification-message {
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.notification-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Error Display */
+.error-display {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,107,107,0.4);
+  background: rgba(255,107,107,0.1);
+}
+
+.error-title {
+  color: var(--danger);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-message {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* JSON Display */
+.json-display {
+  background: rgba(0,0,0,0.3);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* Success Display */
+.success-display {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(46,229,157,0.4);
+  background: rgba(46,229,157,0.1);
+}
+
+.success-title {
+  color: var(--ok);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* Object Display */
+.object-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

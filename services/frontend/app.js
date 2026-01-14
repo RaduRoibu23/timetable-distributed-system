@@ -205,30 +205,24 @@ function renderRoleActions(){
   console.log('Current roles:', roles);
   console.log('Rendering', ALL_ACTIONS.length, 'actions');
   
-  ALL_ACTIONS.forEach(action => {
-    const hasAccess = hasPermission(roles, action.requiredRoles);
+  // Filter actions - only show buttons for actions the user has permission for
+  const allowedActions = ALL_ACTIONS.filter(action => hasPermission(roles, action.requiredRoles));
+  console.log('Allowed actions:', allowedActions.length, 'out of', ALL_ACTIONS.length);
+  
+  allowedActions.forEach(action => {
     const btn = document.createElement('button');
-    btn.className = hasAccess ? 'btn' : 'btn btn-disabled';
+    btn.className = 'btn';
     btn.textContent = action.label;
     btn.dataset.action = action.id;
-    btn.dataset.hasAccess = hasAccess;
     
-    if (hasAccess) {
-      btn.addEventListener('click', async () => {
-        try{
-          await performAction(action);
-        } catch(err){
-          console.error('Button click error:', err);
-          $('api-result').textContent = String(err.message || err);
-        }
-      });
-    } else {
-      btn.style.opacity = '0.5';
-      btn.style.cursor = 'not-allowed';
-      btn.addEventListener('click', () => {
-        alert(`Rolul dvs. nu vă permite să efectuați această acțiune.\n\nAcțiune: ${action.label}\nRoluri necesare: ${action.requiredRoles.join(', ')}\nRolurile dvs.: ${roles.join(', ') || 'Niciun rol'}`);
-      });
-    }
+    btn.addEventListener('click', async () => {
+      try{
+        await performAction(action);
+      } catch(err){
+        console.error('Button click error:', err);
+        $('api-result').textContent = String(err.message || err);
+      }
+    });
     
     list.appendChild(btn);
   });
@@ -238,14 +232,27 @@ function renderRoleActions(){
   if (!list.children.length){
     const p = document.createElement('div'); 
     p.className='hint'; 
-    p.textContent='Nicio acțiune disponibilă.'; 
+    p.textContent='Nicio acțiune disponibilă pentru rolurile tale.'; 
     list.appendChild(p);
   }
 }
 
+function showResults(title, content) {
+  $('results-section').style.display = 'block';
+  $('results-title').textContent = title;
+  $('results-content').innerHTML = content;
+  // Scroll to results
+  $('results-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideResults() {
+  $('results-section').style.display = 'none';
+  $('results-content').innerHTML = '';
+}
+
 async function performAction(action){
   console.log('Executing action:', action);
-  $('api-result').textContent = `Se execută: ${action.label}...`;
+  showResults(action.label, '<p class="hint">Se execută...</p>');
   try{
     const method = action.method || 'GET';
     let apiPath = action.apiPath;
@@ -317,32 +324,195 @@ async function performAction(action){
     
     console.log('Response:', data);
     
-    // Format response nicely
-    if (Array.isArray(data) && data.length > 0 && data[0].class_id && data[0].timeslot_id) {
-      // Timetable entries - format as table
-      $('api-result').textContent = formatTimetable(data);
+    // Format response based on action type
+    let formattedContent = '';
+    
+    if (action.id === 'view-my-timetable' || action.id === 'view-class-timetable' || action.id === 'my-lessons') {
+      // Timetable entries - format as weekly table
+      formattedContent = formatTimetable(data);
+    } else if (action.id === 'list-classes') {
+      formattedContent = formatList(data, [
+        { key: 'id', label: 'ID' },
+        { key: 'name', label: 'Nume Clasă' }
+      ]);
+    } else if (action.id === 'list-subjects') {
+      formattedContent = formatList(data, [
+        { key: 'id', label: 'ID' },
+        { key: 'name', label: 'Nume Materie' },
+        { key: 'short_code', label: 'Cod' }
+      ]);
+    } else if (action.id === 'list-rooms' || action.id === 'list-lessons') {
+      formattedContent = formatList(data, Object.keys(data[0] || {}).map(key => ({
+        key: key,
+        label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
+      })));
+    } else if (action.id === 'list-curricula') {
+      formattedContent = formatList(data, [
+        { key: 'id', label: 'ID' },
+        { key: 'class_id', label: 'Clasă ID' },
+        { key: 'subject_id', label: 'Materie ID' },
+        { key: 'hours_per_week', label: 'Ore/săptămână' }
+      ]);
+    } else if (action.id.startsWith('create-') || action.id.startsWith('update-')) {
+      // Create/Update operations - show success message and created/updated object
+      formattedContent = `
+        <div class="success-display">
+          <p class="success-title">✓ ${action.label} - Succes</p>
+          <div class="object-display" style="margin-top:12px">
+            ${Object.entries(data).map(([key, value]) => {
+              const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+              return `<div class="info-row"><strong>${label}:</strong> ${JSON.stringify(value)}</div>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    } else if (action.id.startsWith('delete-')) {
+      formattedContent = `
+        <div class="success-display">
+          <p class="success-title">✓ ${action.label} - Succes</p>
+          <p class="hint">Elementul a fost șters.</p>
+        </div>
+      `;
+    } else if (action.id === 'my-notifications') {
+      if (data.length === 0) {
+        formattedContent = '<p class="hint">Nu ai notificări.</p>';
+      } else {
+        formattedContent = '<div class="notifications-list">';
+        data.forEach(n => {
+          const date = new Date(n.created_at).toLocaleString('ro-RO');
+          formattedContent += `
+            <div class="notification-item ${n.read ? 'read' : 'unread'}">
+              <div class="notification-message">${n.message}</div>
+              <div class="notification-meta">${date} ${n.read ? '✓ Citit' : '● Necitit'}</div>
+            </div>
+          `;
+        });
+        formattedContent += '</div>';
+      }
+    } else if (action.id === 'my-info') {
+      formattedContent = `
+        <div class="user-info-display">
+          <div class="info-row"><strong>Username:</strong> ${data.username || '-'}</div>
+          <div class="info-row"><strong>Email:</strong> ${data.email || '-'}</div>
+          <div class="info-row"><strong>Roluri:</strong> ${(data.roles || []).join(', ') || 'Niciun rol'}</div>
+          <div class="info-row"><strong>Clasă ID:</strong> ${data.class_id || '-'}</div>
+          <div class="info-row"><strong>Teacher ID:</strong> ${data.teacher_id || '-'}</div>
+        </div>
+      `;
+    } else if (Array.isArray(data)) {
+      // Generic array - format as table
+      if (data.length === 0) {
+        formattedContent = '<p class="hint">Nu există elemente.</p>';
+      } else {
+        formattedContent = formatList(data, Object.keys(data[0]).map(key => ({
+          key: key,
+          label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
+        })));
+      }
+    } else if (typeof data === 'object') {
+      // Object - format as key-value pairs
+      formattedContent = '<div class="object-display">';
+      for (const [key, value] of Object.entries(data)) {
+        const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+        formattedContent += `<div class="info-row"><strong>${label}:</strong> ${JSON.stringify(value)}</div>`;
+      }
+      formattedContent += '</div>';
     } else {
-      $('api-result').textContent = JSON.stringify(data, null, 2);
+      formattedContent = `<pre class="json-display">${JSON.stringify(data, null, 2)}</pre>`;
     }
+    
+    showResults(action.label, formattedContent);
+    
+    // Also update api-result for tab compatibility
+    $('api-result').textContent = JSON.stringify(data, null, 2);
   } catch (err){
     console.error('Action error:', err);
     const errorMsg = err.message || String(err);
+    const errorHtml = `
+      <div class="error-display">
+        <p class="error-title">❌ Eroare</p>
+        <p class="error-message">${errorMsg}</p>
+        <p class="hint" style="margin-top:8px">Endpoint: ${action.method || 'GET'} ${action.apiPath}</p>
+      </div>
+    `;
+    showResults(`${action.label} - Eroare`, errorHtml);
     $('api-result').textContent = `❌ Eroare: ${errorMsg}\n\nEndpoint: ${action.method || 'GET'} ${action.apiPath}`;
-    alert(`Eroare la executarea acțiunii "${action.label}":\n\n${errorMsg}`);
   }
 }
 
 function formatTimetable(entries) {
-  if (!entries || entries.length === 0) return 'Nu există intrări în orar.';
+  if (!entries || entries.length === 0) {
+    return '<p class="hint">Nu există intrări în orar.</p>';
+  }
   
-  let result = `Orar (${entries.length} intrări):\n\n`;
-  result += 'Clasă | Materie | Slot | Sala\n';
-  result += '------|---------|------|-----\n';
-  entries.slice(0, 20).forEach(e => {
-    result += `${e.class_name || e.class_id} | ${e.subject_name || e.subject_id} | ${e.timeslot_name || `Zi ${e.timeslot_weekday} Ora ${e.timeslot_index}`} | ${e.room_name || '-'}\n`;
+  // Group by weekday and index_in_day
+  const days = ['Luni', 'Marți', 'Miercuri', 'Joi', 'Vineri'];
+  const timetable = {};
+  
+  entries.forEach(e => {
+    // Try different field names that might come from API
+    const weekday = e.weekday ?? e.timeslot_weekday ?? 0;
+    const hour = e.index_in_day ?? e.timeslot_index ?? 1;
+    if (!timetable[weekday]) timetable[weekday] = {};
+    timetable[weekday][hour] = {
+      subject: e.subject_name || `Materie ${e.subject_id}`,
+      class: e.class_name || `Clasă ${e.class_id}`,
+      room: e.room_name || '-',
+      id: e.id
+    };
   });
-  if (entries.length > 20) result += `... și ${entries.length - 20} mai multe\n`;
-  return result;
+  
+  let html = '<div class="timetable-container">';
+  html += '<table class="timetable-table">';
+  html += '<thead><tr><th>Ora</th>';
+  for (let d = 0; d < 5; d++) {
+    html += `<th>${days[d]}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  
+  for (let hour = 1; hour <= 7; hour++) {
+    html += `<tr><td class="hour-label">${hour}</td>`;
+    for (let d = 0; d < 5; d++) {
+      const entry = timetable[d]?.[hour];
+      if (entry) {
+        html += `<td class="timetable-cell">
+          <div class="cell-subject">${entry.subject}</div>
+          <div class="cell-room">${entry.room}</div>
+        </td>`;
+      } else {
+        html += '<td class="timetable-cell empty">—</td>';
+      }
+    }
+    html += '</tr>';
+  }
+  
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function formatList(items, fields) {
+  if (!items || items.length === 0) {
+    return '<p class="hint">Nu există elemente.</p>';
+  }
+  
+  let html = '<table class="data-table">';
+  html += '<thead><tr>';
+  fields.forEach(f => {
+    html += `<th>${f.label}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  
+  items.forEach(item => {
+    html += '<tr>';
+    fields.forEach(f => {
+      const value = f.path ? f.path.split('.').reduce((obj, key) => obj?.[key], item) : item[f.key];
+      html += `<td>${value ?? '-'}</td>`;
+    });
+    html += '</tr>';
+  });
+  
+  html += '</tbody></table>';
+  return html;
 }
 
 async function apiPost(path, body) {
@@ -662,6 +832,7 @@ function wireUI(){
 
   $('btn-refresh').addEventListener('click', async () => {
     $('api-result').textContent = '';
+    hideResults();
     try{
       await refreshAccessToken();
       showAuthenticatedUI();
@@ -669,6 +840,10 @@ function wireUI(){
       console.error(err);
       $('api-result').textContent = String(err.message || err);
     }
+  });
+
+  $('btn-clear-results').addEventListener('click', () => {
+    hideResults();
   });
 
   document.querySelectorAll('.tab').forEach(btn => {
