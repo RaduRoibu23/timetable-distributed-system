@@ -16,6 +16,7 @@ from app.models import (
     TimetableEntry,
     UserProfile,
     Room,
+    TimetableJob,
 )
 from app.services.timetable_generator import generate_timetable_for_class
 from app.services import notifications as notifications_service
@@ -52,13 +53,20 @@ class TimetableEntryUpdate(BaseModel):
 
 @router.post(
     "/generate",
-    response_model=List[TimetableEntryRead],
+    response_model=dict,
 )
 def generate_timetables(
     body: GenerateRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_roles(["scheduler", "secretariat", "admin", "sysadmin"])),
 ):
+    """
+    Generate timetables asynchronously via RabbitMQ.
+    Returns job IDs for tracking.
+    """
+    from app.models import TimetableJob
+    from app.services import rabbitmq_client
+    
     class_ids: list[int] = []
     if body.class_ids:
         class_ids = list(body.class_ids)
@@ -67,21 +75,41 @@ def generate_timetables(
     else:
         raise HTTPException(status_code=400, detail="Provide class_id or class_ids")
 
-    results: list[TimetableEntryRead] = []
+    from app.services import audit as audit_service
+    
+    username = current_user.get("preferred_username", "unknown")
+    
+    job_ids: list[int] = []
     for cid in class_ids:
-        entries = generate_timetable_for_class(db, cid)
-        results.extend([_to_read_model(db, e) for e in entries])
-
-        # Send notification to class that timetable was generated
+        # Verify class exists
         class_obj = db.query(SchoolClass).filter(SchoolClass.id == cid).first()
-        if class_obj:
-            notifications_service.send_to_class(
+        if not class_obj:
+            raise HTTPException(status_code=404, detail=f"Class {cid} not found")
+        
+        # Create job record
+        job = TimetableJob(class_id=cid, status="pending")
+        db.add(job)
+        db.flush()  # Get ID without committing
+        
+        # Publish to RabbitMQ
+        if rabbitmq_client.publish_timetable_generation_job(cid, job.id):
+            db.commit()
+            job_ids.append(job.id)
+            
+            # Log action
+            audit_service.log_action(
                 db,
-                cid,
-                f"Orarul pentru clasa {class_obj.name} a fost generat/actualizat.",
+                username=username,
+                action="timetable_generation_queued",
+                resource_type="timetable",
+                resource_id=job.id,
+                details=f"Queued generation for class {cid}",
             )
+        else:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to queue generation job")
 
-    return results
+    return {"job_ids": job_ids, "message": "Timetable generation jobs queued"}
 
 
 @router.get("/classes/{class_id}", response_model=List[TimetableEntryRead])
@@ -164,6 +192,30 @@ def update_timetable_entry(
     db.commit()
     db.refresh(entry)
     return _to_read_model(db, entry)
+
+
+@router.get("/jobs/{job_id}")
+def get_job_status(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_token),
+):
+    """Get status of a timetable generation job."""
+    from app.models import TimetableJob
+    
+    job = db.query(TimetableJob).filter(TimetableJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return {
+        "id": job.id,
+        "class_id": job.class_id,
+        "status": job.status,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "error_message": job.error_message,
+    }
 
 
 def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:

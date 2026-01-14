@@ -149,3 +149,38 @@ class Notification(Base):
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     read = Column(Boolean, nullable=False, default=False)
+
+
+class TimetableJob(Base):
+    """
+    Tracks asynchronous timetable generation jobs.
+    """
+    __tablename__ = "timetable_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("school_classes.id"), nullable=False)
+    
+    status = Column(String(20), nullable=False, default="pending")  # pending, processing, completed, failed
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    error_message = Column(String(500), nullable=True)
+    
+    # Relationship
+    school_class = relationship("SchoolClass")
+
+
+class AuditLog(Base):
+    """
+    Logs important actions for audit purposes.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), nullable=False)
+    action = Column(String(100), nullable=False)  # e.g., "timetable_generated", "timetable_updated"
+    resource_type = Column(String(50), nullable=True)  # e.g., "timetable", "class", "subject"
+    resource_id = Column(Integer, nullable=True)
+    details = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

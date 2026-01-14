@@ -8,7 +8,9 @@ Sistemul este orchestrat cu **Docker Swarm** și include următoarele componente
 
 - **Keycloak** (port 8181) - Management identitate și autentificare OIDC
 - **PostgreSQL** - Baza de date pentru Keycloak și backend
+- **RabbitMQ** (ports 5672, 15672) - Broker de mesaje pentru procesare asincronă
 - **FastAPI Backend** (port 8000) - API REST pentru managementul orarelor
+- **Scheduling Engine Service** - Worker pentru generare asincronă de orare (scalabil orizontal)
 - **Frontend Static** (port 3000) - Interfață web demo
 
 ```
@@ -24,11 +26,28 @@ Sistemul este orchestrat cu **Docker Swarm** și include următoarele componente
 │  (Nginx)    │     │  Backend     │
 └─────────────┘     └──────────────┘
                            │
-                           ▼
-                    ┌─────────────┐
-                    │  PostgreSQL │
-                    │  (App Data) │
-                    └─────────────┘
+                           ├─────────────┐
+                           │             │
+                           ▼             ▼
+                    ┌─────────────┐  ┌──────────────┐
+                    │  PostgreSQL │  │   RabbitMQ   │
+                    │  (App Data) │  │  (Message    │
+                    └─────────────┘  │   Broker)    │
+                                     └──────────────┘
+                                            │
+                                            │ (consumes jobs)
+                                            ▼
+                                     ┌──────────────┐
+                                     │  Scheduling  │
+                                     │  Engine      │
+                                     │  (Workers)    │
+                                     └──────────────┘
+                                            │
+                                            ▼
+                                     ┌─────────────┐
+                                     │  PostgreSQL │
+                                     │  (App Data) │
+                                     └─────────────┘
 ```
 
 ## ✨ Features Implementate
@@ -82,10 +101,13 @@ Sistemul este orchestrat cu **Docker Swarm** și include următoarele componente
 - `GET /timeslots` - Listează toate sloturile temporale (read-only)
 
 #### Orar (Timetables)
-- `POST /timetables/generate` - Generează orar pentru una sau mai multe clase
+- `POST /timetables/generate` - Generează orar asincron pentru una sau mai multe clase (via RabbitMQ)
   - **RBAC**: `scheduler`, `secretariat`, `admin`, `sysadmin`
   - Body: `{"class_id": 1}` sau `{"class_ids": [1, 2]}`
-  - Trimite automat notificare către clasă după generare
+  - Returnează: `{"job_ids": [1, 2], "message": "..."}`
+  - Job-urile sunt procesate asincron de Scheduling Engine Service
+- `GET /timetables/jobs/{job_id}` - Verifică statusul unui job de generare
+  - Returnează: `{"id": 1, "status": "pending|processing|completed|failed", ...}`
 - `GET /timetables/classes/{class_id}` - Obține orarul unei clase
 - `GET /timetables/me` - Obține orarul utilizatorului curent
   - **Student**: returnează automat orarul clasei sale (ignoră parametri)
@@ -124,6 +146,11 @@ Sistemul este orchestrat cu **Docker Swarm** și include următoarele componente
   - Maxim 2 ore de aceeași materie pe zi (soft constraint)
   - Generează exact 35 intrări per clasă (5×7)
   - Idempotent: regenerează complet orarul la fiecare apel
+- ✅ **Generare asincronă**:
+  - Job-urile sunt publicate în RabbitMQ
+  - Scheduling Engine Service procesează job-urile în paralel (scalabil orizontal)
+  - Status tracking pentru fiecare job
+  - Notificări automate după generare
 
 ## 🚀 Quick Start
 
@@ -313,10 +340,14 @@ docker stack rm scd
 - [x] Endpoint pentru editare manuală a intrărilor din orar (`PATCH /timetables/entries/{id}`)
 - [x] Notificări (endpoint-uri + trigger la generare/publish)
 - [x] Compatibilitate cu frontend-ul existent (alias-uri pentru endpoint-uri vechi)
+- [x] **RabbitMQ** - Broker de mesaje pentru procesare asincronă
+- [x] **Scheduling Engine Service** - Worker scalabil orizontal pentru generare asincronă
+- [x] **Job tracking** - Urmărire status job-uri de generare (`GET /timetables/jobs/{id}`)
+- [x] **AuditLog** - Logare acțiuni importante pentru audit
 - [x] Teste automate în `demos/` pentru toate funcționalitățile
 
 ### 🚧 În Dezvoltare
-- [ ] Îmbunătățire algoritm de generare orare (optimizare, constraint satisfaction)
+- [ ] Îmbunătățire algoritm de generare orare (optimizare, constraint satisfaction, preferințe profesori)
 
 ### 📋 Planificat
 - [ ] Upgrade distribuit: RabbitMQ + `scheduling-engine-service` (worker replicabil)

@@ -59,6 +59,26 @@ services:
         constraints:
           - node.role == manager
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    networks:
+      - scd-net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+        max_attempts: 10
+      placement:
+        constraints:
+          - node.role == manager
+
   timetable_backend:
     image: roiburadu/timetable-management-service:dev1
     environment:
@@ -67,12 +87,35 @@ services:
       KEYCLOAK_INTERNAL_REALM_URL: http://scd_keycloak:8080/realms/timetable-realm
       KEYCLOAK_REALM_URL: http://scd_keycloak:8080/realms/timetable-realm
       KEYCLOAK_CLIENT_ID: timetable-backend
+      RABBITMQ_URL: amqp://admin:admin@rabbitmq:5672/
     ports:
       - "8000:8000"
     networks:
       - scd-net
     volumes:
       - C:/Users/roibu/Desktop/Facultateapl/ANUL 4/SCD/Proiect SCD/timetable-distributed-system/services/timetable-management-service/app:/app/app:ro
+    depends_on:
+      - rabbitmq
+
+  scheduling_engine:
+    image: roiburadu/scheduling-engine-service:dev1
+    environment:
+      DATABASE_URL: postgresql+psycopg2://keycloak:keycloak@scd_postgres:5432/keycloak
+      RABBITMQ_URL: amqp://admin:admin@rabbitmq:5672/
+      SHARED_CODE_PATH: /app/shared
+    networks:
+      - scd-net
+    volumes:
+      - C:/Users/roibu/Desktop/Facultateapl/ANUL 4/SCD/Proiect SCD/timetable-distributed-system/services/timetable-management-service/app:/app/shared:ro
+    depends_on:
+      - rabbitmq
+      - scd_postgres
+    deploy:
+      replicas: 2  # Horizontal scaling - multiple workers
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+        max_attempts: 10
 
   timetable_frontend:
     image: roiburadu/timetable-frontend:dev
