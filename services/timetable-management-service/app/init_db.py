@@ -27,18 +27,22 @@ def _get_or_create(session: Session, model, defaults=None, **kwargs):
 
 def seed_demo_data():
     """
-    Seed minimal demo data:
-    - Classes: IX-A, IX-B
+    Seed demo data:
+    - Classes: IX-A, IX-B, X-A, X-B, XI-A (5 classes)
     - Time slots: Monday–Friday x 1..7 (35)
-    - Subjects and curriculum (same for both classes, 35 hours/week)
-    - UserProfile for student01 mapped to IX-A
+    - Subjects and curriculum (same for all classes, 35 hours/week)
+    - UserProfile for students: student01-10 -> IX-A, student11-20 -> IX-B, etc.
+    - UserProfile for professors: professor01-10 with teacher_id
     """
 
     session: Session = SessionLocal()
     try:
-        # Classes
-        ix_a = _get_or_create(session, SchoolClass, name="IX-A")
-        ix_b = _get_or_create(session, SchoolClass, name="IX-B")
+        # Classes (5 classes)
+        classes = []
+        class_names = ["IX-A", "IX-B", "X-A", "X-B", "XI-A"]
+        for name in class_names:
+            cls = _get_or_create(session, SchoolClass, name=name)
+            classes.append(cls)
 
         # Time slots: weekdays 0..4, index_in_day 1..7
         for weekday in range(5):
@@ -123,16 +127,35 @@ def seed_demo_data():
                         )
                     )
 
-        ensure_curriculum_for_class(ix_a)
-        ensure_curriculum_for_class(ix_b)
+        # Ensure curriculum for all classes
+        for cls in classes:
+            ensure_curriculum_for_class(cls)
 
-        # Map students to classes
-        _get_or_create(
-            session,
-            UserProfile,
-            username="student01",
-            defaults={"class_id": ix_a.id},
-        )
+        # Map students to classes (25 students per class)
+        # student01-25 -> IX-A, student26-50 -> IX-B, student51-75 -> X-A, etc.
+        students_per_class = 25
+        for class_idx, cls in enumerate(classes):
+            start_student = class_idx * students_per_class + 1
+            end_student = start_student + students_per_class - 1
+            for student_num in range(start_student, end_student + 1):
+                username = f"student{student_num:02d}"  # student01, student02, etc.
+                _get_or_create(
+                    session,
+                    UserProfile,
+                    username=username,
+                    defaults={"class_id": cls.id},
+                )
+
+        # Map professors (professor01-10) with teacher_id
+        # teacher_id is just a sequential number for now
+        for prof_num in range(1, 11):
+            username = f"professor{prof_num:02d}"  # professor01, professor02, etc.
+            _get_or_create(
+                session,
+                UserProfile,
+                username=username,
+                defaults={"teacher_id": prof_num},
+            )
         
         # Add some rooms for testing
         from app.models import Room
