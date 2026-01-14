@@ -1,105 +1,24 @@
-########################
-# OS / Editor garbage  #
-########################
-.DS_Store
-Thumbs.db
-ehthumbs.db
-*.swp
-*.swo
-*.swn
-*.tmp
+# Token files (temporary)
+token-*.json
+*_response.json
 
-########################
-# Python bytecode      #
-########################
+# Python
 __pycache__/
-**/__pycache__/
 *.py[cod]
 *$py.class
-
-########################
-# Virtual envs         #
-########################
-.venv/
-venv/
+*.so
+.Python
 env/
+venv/
 ENV/
-.venv*/
-venv*/
-env*/
+.venv
 
-########################
-# Build / dist         #
-########################
-build/
-dist/
-*.egg-info/
-.eggs/
-pip-wheel-metadata/
-*.egg
-
-########################
-# Test / tooling       #
-########################
-.pytest_cache/
-.tox/
-.nox/
-.mypy_cache/
-.pyre/
-.coverage
-.coverage.*
-htmlcov/
-.cache/
-
-########################
-# Logs                 #
-########################
-*.log
-logs/
-log/
-
-########################
-# IDE / Editor config  #
-########################
+# IDE
 .vscode/
 .idea/
-*.iml
+*.swp
+*.swo
 
-########################
-# Local config & secrets
-########################
-# local env files (nu urcăm credențiale)
-.env
-.env.*
-!.env.example    # dacă vrei un template public
-
-# token de test – doar local, NU în git
-token.json
-
-########################
-# Databases (local)    #
-########################
-*.sqlite3
-*.db
-*.db-journal
-
-########################
-# Node / frontend (dacă vei adăuga ceva)
-########################
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-########################
-# Docker artefacts     #
-########################
-# (NU ignorăm Dockerfile / docker-compose.yml)
-docker-data/
-*.pid
-
-########################
-# Misc                 #
-########################
-*.bak
-*.orig
-*.rej
+# OS
+.DS_Store
+Thumbs.db

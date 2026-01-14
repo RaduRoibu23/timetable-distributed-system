@@ -15,8 +15,10 @@ from app.models import (
     TimeSlot,
     TimetableEntry,
     UserProfile,
+    Room,
 )
 from app.services.timetable_generator import generate_timetable_for_class
+from app.services import notifications as notifications_service
 
 
 router = APIRouter(prefix="/timetables", tags=["timetables"])
@@ -43,6 +45,11 @@ class TimetableEntryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TimetableEntryUpdate(BaseModel):
+    subject_id: int | None = None
+    room_id: int | None = None
+
+
 @router.post(
     "/generate",
     response_model=List[TimetableEntryRead],
@@ -64,6 +71,16 @@ def generate_timetables(
     for cid in class_ids:
         entries = generate_timetable_for_class(db, cid)
         results.extend([_to_read_model(db, e) for e in entries])
+
+        # Send notification to class that timetable was generated
+        class_obj = db.query(SchoolClass).filter(SchoolClass.id == cid).first()
+        if class_obj:
+            notifications_service.send_to_class(
+                db,
+                cid,
+                f"Orarul pentru clasa {class_obj.name} a fost generat/actualizat.",
+            )
+
     return results
 
 
@@ -114,6 +131,39 @@ def get_my_timetable(
         .all()
     )
     return [_to_read_model(db, e) for e in entries]
+
+
+@router.patch("/entries/{entry_id}", response_model=TimetableEntryRead)
+def update_timetable_entry(
+    entry_id: int,
+    entry_in: TimetableEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+):
+    entry = db.query(TimetableEntry).filter(TimetableEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Timetable entry not found")
+
+    if entry_in.subject_id is not None:
+        # Verify subject exists
+        subject = db.query(Subject).filter(Subject.id == entry_in.subject_id).first()
+        if not subject:
+            raise HTTPException(status_code=400, detail="Subject not found")
+        entry.subject_id = entry_in.subject_id
+
+    if entry_in.room_id is not None:
+        # Verify room exists (or allow None to unset)
+        if entry_in.room_id == 0:
+            entry.room_id = None
+        else:
+            room = db.query(Room).filter(Room.id == entry_in.room_id).first()
+            if not room:
+                raise HTTPException(status_code=400, detail="Room not found")
+            entry.room_id = entry_in.room_id
+
+    db.commit()
+    db.refresh(entry)
+    return _to_read_model(db, entry)
 
 
 def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:

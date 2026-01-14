@@ -66,19 +66,45 @@ Sistemul este orchestrat cu **Docker Swarm** și include următoarele componente
 #### Autentificare
 - `GET /me` - Informații utilizator curent (username, roles, class_id)
 
-#### Catalog (Read-only)
+#### Catalog (CRUD complet)
 - `GET /classes` - Listează toate clasele
+- `POST /classes` - Creează clasă (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `PUT /classes/{id}` - Actualizează clasă (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `DELETE /classes/{id}` - Șterge clasă (RBAC: `secretariat`, `admin`, `sysadmin`)
 - `GET /subjects` - Listează toate materiile
-- `GET /timeslots` - Listează toate sloturile temporale
+- `POST /subjects` - Creează materie (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `PUT /subjects/{id}` - Actualizează materie (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `DELETE /subjects/{id}` - Șterge materie (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `GET /curricula` - Listează curriculum-urile (toate rolurile)
+- `POST /curricula` - Creează curriculum (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `PUT /curricula/{id}` - Actualizează curriculum (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `DELETE /curricula/{id}` - Șterge curriculum (RBAC: `secretariat`, `admin`, `sysadmin`)
+- `GET /timeslots` - Listează toate sloturile temporale (read-only)
 
 #### Orar (Timetables)
 - `POST /timetables/generate` - Generează orar pentru una sau mai multe clase
   - **RBAC**: `scheduler`, `secretariat`, `admin`, `sysadmin`
   - Body: `{"class_id": 1}` sau `{"class_ids": [1, 2]}`
+  - Trimite automat notificare către clasă după generare
 - `GET /timetables/classes/{class_id}` - Obține orarul unei clase
 - `GET /timetables/me` - Obține orarul utilizatorului curent
   - **Student**: returnează automat orarul clasei sale (ignoră parametri)
   - **Alte roluri**: pot specifica `?class_id=X`
+- `PATCH /timetables/entries/{id}` - Editează manual o intrare din orar
+  - **RBAC**: `secretariat`, `admin`, `sysadmin`
+  - Body: `{"subject_id": 2}` sau `{"room_id": 3}` sau ambele
+
+#### Notificări
+- `POST /notifications/send` - Trimite notificare către utilizator sau clasă
+  - **RBAC**: `secretariat`, `admin`, `sysadmin`, `professor`
+  - Body: `{"user_id": 1}` sau `{"class_id": 1}`, `{"message": "..."}`
+- `GET /notifications/me` - Listează notificările utilizatorului curent
+- `PATCH /notifications/{id}/read` - Marchează notificarea ca citită
+
+#### Compatibilitate Frontend (Alias-uri)
+- `POST /schedule/run` - Alias pentru `POST /timetables/generate` (pentru frontend)
+- `GET /lessons/mine` - Alias pentru `GET /timetables/me` (pentru frontend)
+- `GET /users` - Returnează `[]` (compatibilitate admin actions)
 
 #### Rooms (Săli)
 - `GET /rooms` - Listează sălile
@@ -282,15 +308,15 @@ docker stack rm scd
 - [x] Model de date complet pentru orar
 - [x] Seed automat pentru date demo
 - [x] Generator de orar (MVP)
-- [x] Endpoint-uri pentru catalog (read)
+- [x] Endpoint-uri pentru catalog (read + CRUD complet)
 - [x] Endpoint `/timetables/me` cu restricție pentru studenți
-- [x] Teste automate în `demos/`
+- [x] Endpoint pentru editare manuală a intrărilor din orar (`PATCH /timetables/entries/{id}`)
+- [x] Notificări (endpoint-uri + trigger la generare/publish)
+- [x] Compatibilitate cu frontend-ul existent (alias-uri pentru endpoint-uri vechi)
+- [x] Teste automate în `demos/` pentru toate funcționalitățile
 
 ### 🚧 În Dezvoltare
-- [ ] Notificări (endpoint-uri + trigger la generare/publish)
-- [ ] CRUD complet pentru catalog (classes, subjects, curricula)
-- [ ] Endpoint pentru editare manuală a intrărilor din orar
-- [ ] Compatibilitate cu frontend-ul existent (alias-uri pentru endpoint-uri vechi)
+- [ ] Îmbunătățire algoritm de generare orare (optimizare, constraint satisfaction)
 
 ### 📋 Planificat
 - [ ] Upgrade distribuit: RabbitMQ + `scheduling-engine-service` (worker replicabil)
