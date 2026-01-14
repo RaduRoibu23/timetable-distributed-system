@@ -9,10 +9,8 @@ docker build -t roiburadu/timetable-management-service:dev1 .
 cd ../..
 
 echo "Building scheduling-engine-service..."
-cd services/scheduling-engine-service
-# Build from project root to access shared code
-docker build -f Dockerfile -t roiburadu/scheduling-engine-service:dev1 ../..
-cd ../..
+# Build from project root to access shared code from timetable-management-service
+docker build -f services/scheduling-engine-service/Dockerfile -t roiburadu/scheduling-engine-service:dev1 .
 
 echo "All images built successfully!"
 echo ""
