@@ -38,8 +38,8 @@ def process_job(job_id: int, class_id: int, db_session):
     db_session.commit()
     
     try:
-        # Generate timetable
-        entries = generate_timetable_for_class(db_session, class_id)
+        # Generate timetable (pass job_id for conflict reporting)
+        entries = generate_timetable_for_class(db_session, class_id, job_id=job_id)
         
         # Update job status to completed
         job.status = "completed"

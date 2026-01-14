@@ -78,6 +78,7 @@ class TimeSlot(Base):
 class Curriculum(Base):
     """
     Weekly curriculum: how many hours per week a class has for a given subject.
+    Optionally includes teacher_id for the teacher assigned to teach this subject to this class.
     """
 
     __tablename__ = "curricula"
@@ -86,6 +87,7 @@ class Curriculum(Base):
     class_id = Column(Integer, ForeignKey("school_classes.id"), nullable=False)
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
     hours_per_week = Column(SmallInteger, nullable=False)
+    teacher_id = Column(Integer, nullable=True)  # References UserProfile.teacher_id
 
     __table_args__ = (
         UniqueConstraint("class_id", "subject_id", name="uq_curriculum_class_subject"),
@@ -98,6 +100,7 @@ class Curriculum(Base):
 class TimetableEntry(Base):
     """
     One cell in the timetable: (class, timeslot) -> subject (+ optional room).
+    Includes version field for optimistic locking.
     """
 
     __tablename__ = "timetable_entries"
@@ -107,6 +110,7 @@ class TimetableEntry(Base):
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
     timeslot_id = Column(Integer, ForeignKey("time_slots.id"), nullable=False)
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True)
+    version = Column(Integer, nullable=False, default=1)  # For optimistic locking
 
     __table_args__ = (
         UniqueConstraint(
@@ -184,3 +188,55 @@ class AuditLog(Base):
     resource_id = Column(Integer, nullable=True)
     details = Column(String(500), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class TeacherAvailability(Base):
+    """
+    Represents teacher availability for specific time slots.
+    """
+    __tablename__ = "teacher_availability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, nullable=False)  # References UserProfile.teacher_id
+    weekday = Column(SmallInteger, nullable=False)  # 0 = Monday ... 4 = Friday
+    index_in_day = Column(SmallInteger, nullable=False)  # 1..7
+    available = Column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "weekday", "index_in_day", name="uq_teacher_availability"),
+    )
+
+
+class RoomAvailability(Base):
+    """
+    Represents room availability for specific time slots.
+    """
+    __tablename__ = "room_availability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False)
+    weekday = Column(SmallInteger, nullable=False)  # 0 = Monday ... 4 = Friday
+    index_in_day = Column(SmallInteger, nullable=False)  # 1..7
+    available = Column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("room_id", "weekday", "index_in_day", name="uq_room_availability"),
+    )
+
+    room = relationship("Room")
+
+
+class ConflictReport(Base):
+    """
+    Reports conflicts encountered during timetable generation.
+    """
+    __tablename__ = "conflict_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("timetable_jobs.id"), nullable=False)
+    conflict_type = Column(String(50), nullable=False)  # "teacher_unavailable", "room_unavailable", "room_capacity", "no_solution"
+    details = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationship
+    job = relationship("TimetableJob")

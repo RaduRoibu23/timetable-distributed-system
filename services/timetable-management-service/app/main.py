@@ -7,6 +7,8 @@ from app.api.routes_catalog_read import router as catalog_router
 from app.api.routes_timetables import router as timetables_router
 from app.api.routes_notifications import router as notifications_router
 from app.api.routes_compat import router as compat_router
+from app.api.routes_availability import router as availability_router
+from app.api.routes_audit import router as audit_router
 
 from app.db import Base, engine
 from app import models  # noqa: F401
@@ -40,3 +42,5 @@ app.include_router(rooms_router)
 app.include_router(catalog_router)
 app.include_router(timetables_router)
 app.include_router(notifications_router)
+app.include_router(availability_router)
+app.include_router(audit_router)

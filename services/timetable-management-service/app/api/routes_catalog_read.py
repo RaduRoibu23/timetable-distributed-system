@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.rbac import require_roles
 from app.core.security import verify_token
 from app.db import get_db
-from app.models import SchoolClass, Subject, TimeSlot, Curriculum
+from app.models import SchoolClass, Subject, TimeSlot, Curriculum, UserProfile
 
 
 router = APIRouter(
@@ -61,6 +61,7 @@ class CurriculumRead(BaseModel):
     class_id: int
     subject_id: int
     hours_per_week: int
+    teacher_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,10 +70,12 @@ class CurriculumCreate(BaseModel):
     class_id: int
     subject_id: int
     hours_per_week: int = Field(..., ge=1, le=10)
+    teacher_id: int | None = None
 
 
 class CurriculumUpdate(BaseModel):
-    hours_per_week: int = Field(..., ge=1, le=10)
+    hours_per_week: int | None = Field(None, ge=1, le=10)
+    teacher_id: int | None = None
 
 
 # ========= TimeSlots (read-only) =========
@@ -259,10 +262,17 @@ def create_curriculum(
     if not subject_exists:
         raise HTTPException(status_code=400, detail="Subject not found")
 
+    # Verify teacher exists if provided
+    if curriculum_in.teacher_id is not None:
+        teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == curriculum_in.teacher_id).first()
+        if not teacher_profile:
+            raise HTTPException(status_code=400, detail="Teacher not found")
+
     curriculum = Curriculum(
         class_id=curriculum_in.class_id,
         subject_id=curriculum_in.subject_id,
         hours_per_week=curriculum_in.hours_per_week,
+        teacher_id=curriculum_in.teacher_id,
     )
     db.add(curriculum)
     try:
@@ -304,4 +314,140 @@ def delete_curriculum(
     db.delete(curriculum)
     db.commit()
     return {"detail": "Curriculum deleted"}
+
+
+# ========= Subject-Teacher Mapping Endpoints =========
+
+class SubjectTeacherRead(BaseModel):
+    curriculum_id: int
+    class_id: int
+    class_name: str
+    subject_id: int
+    subject_name: str
+    teacher_id: int
+    teacher_username: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/subjects/{subject_id}/teachers", response_model=List[SubjectTeacherRead])
+def get_subject_teachers(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_token),
+):
+    """List all teachers assigned to teach a subject (across all classes)."""
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    curricula = (
+        db.query(Curriculum)
+        .filter(
+            Curriculum.subject_id == subject_id,
+            Curriculum.teacher_id.isnot(None),
+        )
+        .all()
+    )
+
+    result = []
+    for curr in curricula:
+        class_obj = db.query(SchoolClass).filter(SchoolClass.id == curr.class_id).first()
+        teacher_profile = (
+            db.query(UserProfile)
+            .filter(UserProfile.teacher_id == curr.teacher_id)
+            .first()
+        )
+        result.append(SubjectTeacherRead(
+            curriculum_id=curr.id,
+            class_id=curr.class_id,
+            class_name=class_obj.name if class_obj else "",
+            subject_id=curr.subject_id,
+            subject_name=subject.name,
+            teacher_id=curr.teacher_id,
+            teacher_username=teacher_profile.username if teacher_profile else None,
+        ))
+
+    return result
+
+
+class AssignTeacherRequest(BaseModel):
+    class_id: int
+    teacher_id: int
+
+
+@router.post("/subjects/{subject_id}/teachers")
+def assign_teacher_to_subject(
+    subject_id: int,
+    request: AssignTeacherRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+):
+    """Assign a teacher to teach a subject for a specific class (via Curriculum)."""
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    curriculum = (
+        db.query(Curriculum)
+        .filter(
+            Curriculum.subject_id == subject_id,
+            Curriculum.class_id == request.class_id,
+        )
+        .first()
+    )
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum not found for this subject and class")
+
+    # Verify teacher exists
+    teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == request.teacher_id).first()
+    if not teacher_profile:
+        raise HTTPException(status_code=400, detail="Teacher not found")
+
+    curriculum.teacher_id = request.teacher_id
+    db.commit()
+    db.refresh(curriculum)
+
+    class_obj = db.query(SchoolClass).filter(SchoolClass.id == request.class_id).first()
+    return {
+        "detail": "Teacher assigned",
+        "curriculum_id": curriculum.id,
+        "class_id": request.class_id,
+        "class_name": class_obj.name if class_obj else "",
+        "subject_id": subject_id,
+        "subject_name": subject.name,
+        "teacher_id": request.teacher_id,
+        "teacher_username": teacher_profile.username,
+    }
+
+
+@router.delete("/subjects/{subject_id}/teachers/{teacher_id}")
+def remove_teacher_from_subject(
+    subject_id: int,
+    teacher_id: int,
+    class_id: int | None = Query(None, description="Optional class ID to remove assignment for specific class"),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+):
+    """Remove a teacher assignment from a subject (optionally for a specific class)."""
+    
+    query = (
+        db.query(Curriculum)
+        .filter(
+            Curriculum.subject_id == subject_id,
+            Curriculum.teacher_id == teacher_id,
+        )
+    )
+    if class_id is not None:
+        query = query.filter(Curriculum.class_id == class_id)
+
+    curricula = query.all()
+    if not curricula:
+        raise HTTPException(status_code=404, detail="Teacher assignment not found")
+
+    for curr in curricula:
+        curr.teacher_id = None
+
+    db.commit()
+    return {"detail": "Teacher assignment removed", "count": len(curricula)}
 

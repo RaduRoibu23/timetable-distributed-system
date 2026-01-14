@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List
+from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +18,10 @@ from app.models import (
     UserProfile,
     Room,
     TimetableJob,
+    ConflictReport,
+    Curriculum,
+    TeacherAvailability,
+    RoomAvailability,
 )
 from app.services.timetable_generator import generate_timetable_for_class
 from app.services import notifications as notifications_service
@@ -172,6 +177,13 @@ def update_timetable_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Timetable entry not found")
 
+    # Optimistic locking: check version
+    if entry.version != entry_in.version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Version mismatch. Expected {entry.version}, got {entry_in.version}. Entry may have been modified by another user."
+        )
+
     if entry_in.subject_id is not None:
         # Verify subject exists
         subject = db.query(Subject).filter(Subject.id == entry_in.subject_id).first()
@@ -187,7 +199,116 @@ def update_timetable_entry(
             room = db.query(Room).filter(Room.id == entry_in.room_id).first()
             if not room:
                 raise HTTPException(status_code=400, detail="Room not found")
+            
+            # Advanced validation: Check room capacity vs class size
+            student_count = (
+                db.query(UserProfile)
+                .filter(UserProfile.class_id == entry.class_id)
+                .count()
+            )
+            if student_count > room.capacity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Room capacity ({room.capacity}) is insufficient for class size ({student_count} students)"
+                )
+            
+            # Advanced validation: Check room availability
+            from app.models import RoomAvailability, TimeSlot
+            timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
+            if timeslot:
+                room_avail = (
+                    db.query(RoomAvailability)
+                    .filter(
+                        RoomAvailability.room_id == entry_in.room_id,
+                        RoomAvailability.weekday == timeslot.weekday,
+                        RoomAvailability.index_in_day == timeslot.index_in_day,
+                    )
+                    .first()
+                )
+                if room_avail and not room_avail.available:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Room is not available at this time slot (weekday {timeslot.weekday}, hour {timeslot.index_in_day})"
+                    )
+            
+            # Advanced validation: Check room overlap (same room, same timeslot, different class)
+            overlapping_entry = (
+                db.query(TimetableEntry)
+                .filter(
+                    TimetableEntry.room_id == entry_in.room_id,
+                    TimetableEntry.timeslot_id == entry.timeslot_id,
+                    TimetableEntry.id != entry_id,  # Exclude current entry
+                )
+                .first()
+            )
+            if overlapping_entry:
+                other_class = db.query(SchoolClass).filter(SchoolClass.id == overlapping_entry.class_id).first()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Room is already occupied by class {other_class.name if other_class else overlapping_entry.class_id} at this time slot"
+                )
+            
             entry.room_id = entry_in.room_id
+
+    # Advanced validation: Check teacher overlap (if subject_id changed)
+    if entry_in.subject_id is not None and entry_in.subject_id != entry.subject_id:
+        from app.models import Curriculum, TeacherAvailability, TimeSlot
+        # Find teacher for this subject+class combination
+        curriculum = (
+            db.query(Curriculum)
+            .filter(
+                Curriculum.subject_id == entry_in.subject_id,
+                Curriculum.class_id == entry.class_id,
+            )
+            .first()
+        )
+        
+        if curriculum and curriculum.teacher_id:
+            timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
+            if timeslot:
+                # Check teacher availability
+                teacher_avail = (
+                    db.query(TeacherAvailability)
+                    .filter(
+                        TeacherAvailability.teacher_id == curriculum.teacher_id,
+                        TeacherAvailability.weekday == timeslot.weekday,
+                        TeacherAvailability.index_in_day == timeslot.index_in_day,
+                    )
+                    .first()
+                )
+                if teacher_avail and not teacher_avail.available:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Teacher is not available at this time slot (weekday {timeslot.weekday}, hour {timeslot.index_in_day})"
+                    )
+                
+                # Check teacher overlap (same teacher, same timeslot, different class/subject)
+                other_entries = (
+                    db.query(TimetableEntry)
+                    .join(Curriculum, TimetableEntry.subject_id == Curriculum.subject_id)
+                    .filter(
+                        Curriculum.teacher_id == curriculum.teacher_id,
+                        TimetableEntry.timeslot_id == entry.timeslot_id,
+                        TimetableEntry.id != entry_id,
+                    )
+                    .all()
+                )
+                if other_entries:
+                    conflict_details = []
+                    for other_entry in other_entries:
+                        other_class = db.query(SchoolClass).filter(SchoolClass.id == other_entry.class_id).first()
+                        other_subj = db.query(Subject).filter(Subject.id == other_entry.subject_id).first()
+                        conflict_details.append(
+                            f"class {other_class.name if other_class else other_entry.class_id}, "
+                            f"subject {other_subj.name if other_subj else other_entry.subject_id}"
+                        )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Teacher already has a lesson at this time slot: {', '.join(conflict_details)}"
+                    )
+
+    # Increment version for optimistic locking
+    entry.version += 1
 
     db.commit()
     db.refresh(entry)
@@ -218,6 +339,94 @@ def get_job_status(
     }
 
 
+class ConflictReportRead(BaseModel):
+    id: int
+    job_id: int
+    conflict_type: str
+    details: str | None
+    created_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/jobs/{job_id}/conflicts", response_model=List[ConflictReportRead])
+def get_job_conflicts(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_token),
+):
+    """Get conflict reports for a timetable generation job."""
+    from app.models import TimetableJob, ConflictReport
+    
+    job = db.query(TimetableJob).filter(TimetableJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    conflicts = (
+        db.query(ConflictReport)
+        .filter(ConflictReport.job_id == job_id)
+        .order_by(ConflictReport.created_at)
+        .all()
+    )
+    
+    return [
+        ConflictReportRead(
+            id=c.id,
+            job_id=c.job_id,
+            conflict_type=c.conflict_type,
+            details=c.details,
+            created_at=c.created_at.isoformat() if c.created_at else "",
+        )
+        for c in conflicts
+    ]
+
+
+@router.get("/stats")
+def get_timetable_stats(
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_token),
+):
+    """Get statistics about timetables."""
+    from collections import Counter
+    from app.models import TimetableJob, ConflictReport, TimeSlot
+    
+    # Total timetables generated (completed jobs)
+    total_generated = (
+        db.query(TimetableJob)
+        .filter(TimetableJob.status == "completed")
+        .count()
+    )
+    
+    # Total conflicts
+    total_conflicts = db.query(ConflictReport).count()
+    
+    # Distribution of subjects by weekday
+    entries = db.query(TimetableEntry).all()
+    subject_distribution = Counter()
+    room_usage = Counter()
+    
+    for entry in entries:
+        timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
+        if timeslot:
+            weekday_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"][timeslot.weekday]
+            subject = db.query(Subject).filter(Subject.id == entry.subject_id).first()
+            if subject:
+                subject_distribution[f"{weekday_name} - {subject.name}"] += 1
+            
+            if entry.room_id:
+                room = db.query(Room).filter(Room.id == entry.room_id).first()
+                if room:
+                    room_usage[room.name] += 1
+    
+    return {
+        "total_timetables_generated": total_generated,
+        "total_conflicts": total_conflicts,
+        "subject_distribution_by_day": dict(subject_distribution),
+        "room_usage": dict(room_usage),
+        "total_timetable_entries": len(entries),
+    }
+
+
 def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
     cls = db.query(SchoolClass).filter(SchoolClass.id == entry.class_id).first()
     subj = db.query(Subject).filter(Subject.id == entry.subject_id).first()
@@ -229,6 +438,7 @@ def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
         timeslot_id=entry.timeslot_id,
         subject_id=entry.subject_id,
         room_id=entry.room_id,
+        version=getattr(entry, "version", 1),
         class_name=getattr(cls, "name", None),
         subject_name=getattr(subj, "name", None),
         weekday=getattr(ts, "weekday", None),
