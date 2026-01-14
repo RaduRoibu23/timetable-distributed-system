@@ -92,21 +92,22 @@ services:
       - "8000:8000"
     networks:
       - scd-net
-    volumes:
-      - C:/Users/roibu/Desktop/Facultateapl/ANUL 4/SCD/Proiect SCD/timetable-distributed-system/services/timetable-management-service/app:/app/app:ro
     depends_on:
       - rabbitmq
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+        max_attempts: 10
 
   scheduling_engine:
     image: roiburadu/scheduling-engine-service:dev1
     environment:
       DATABASE_URL: postgresql+psycopg2://keycloak:keycloak@scd_postgres:5432/keycloak
       RABBITMQ_URL: amqp://admin:admin@rabbitmq:5672/
-      SHARED_CODE_PATH: /app/shared
     networks:
       - scd-net
-    volumes:
-      - C:/Users/roibu/Desktop/Facultateapl/ANUL 4/SCD/Proiect SCD/timetable-distributed-system/services/timetable-management-service/app:/app/shared:ro
     depends_on:
       - rabbitmq
       - scd_postgres

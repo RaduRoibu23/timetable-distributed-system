@@ -10,8 +10,6 @@ import time
 from datetime import datetime
 
 import pika
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 # Add shared code path to import shared models
 shared_path = os.getenv("SHARED_CODE_PATH", "/app/shared")
@@ -19,17 +17,17 @@ if shared_path not in sys.path:
     sys.path.insert(0, shared_path)
 
 # Import from shared code (timetable-management-service)
+# Import db first to ensure Base is available
+import db as shared_db
 from models import TimetableJob, SchoolClass
 from services.timetable_generator import generate_timetable_for_class
 from services import notifications as notifications_service
 
 
-def get_db_url() -> str:
-    """Get database URL from environment."""
-    return os.getenv(
-        "DATABASE_URL",
-        "postgresql+psycopg2://keycloak:keycloak@scd_postgres:5432/keycloak",
-    )
+def get_shared_db_session_factory():
+    """Get database session factory using shared db module."""
+    # Use the shared db module's SessionLocal (which is a sessionmaker)
+    return shared_db.SessionLocal
 
 
 def get_rabbitmq_url() -> str:
@@ -80,6 +78,9 @@ def process_job(job_id: int, class_id: int, db_session):
                 resource_id=job_id,
                 details=f"Generated timetable for class {class_id} with {len(entries)} entries",
             )
+        except ImportError:
+            # Audit service might not be available, skip silently
+            pass
         except Exception as e:
             print(f"[Worker] Failed to log audit action: {e}")
         
@@ -128,10 +129,9 @@ def main():
     """Main worker loop."""
     print("[Worker] Starting Scheduling Engine Service...")
     
-    # Setup database
-    db_url = get_db_url()
-    engine = create_engine(db_url)
-    SessionLocal = sessionmaker(bind=engine)
+    # Use shared db module for consistency
+    # The shared db module already has the engine and SessionLocal configured
+    SessionLocal = get_shared_db_session_factory()
     
     # Setup RabbitMQ connection
     rabbitmq_url = get_rabbitmq_url()
