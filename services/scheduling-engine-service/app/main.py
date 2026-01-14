@@ -46,13 +46,18 @@ def process_job(job_id: int, class_id: int, db_session):
         job.completed_at = datetime.utcnow()
         db_session.commit()
         
-        # Send notification to class
+        # Publish notification event to RabbitMQ (Notifications Service will handle it)
         class_obj = db_session.query(SchoolClass).filter(SchoolClass.id == class_id).first()
         if class_obj:
-            notifications_service.send_to_class(
-                db_session,
-                class_id,
-                f"Orarul pentru clasa {class_obj.name} a fost generat/actualizat.",
+            from timetable_shared.services.rabbitmq_client import publish_notification_event
+            publish_notification_event(
+                "timetable_generated",
+                {
+                    "class_id": class_id,
+                    "class_name": class_obj.name,
+                    "job_id": job_id,
+                    "entries_count": len(entries),
+                }
             )
         
         # Log audit action

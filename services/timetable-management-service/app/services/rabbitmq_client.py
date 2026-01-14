@@ -52,3 +52,45 @@ def publish_timetable_generation_job(class_id: int, job_id: int) -> bool:
     except Exception as e:
         print(f"Failed to publish job to RabbitMQ: {e}")
         return False
+
+
+def publish_notification_event(event_type: str, event_data: dict[str, Any]) -> bool:
+    """
+    Publish a notification event to RabbitMQ queue.
+    
+    Args:
+        event_type: Type of event (e.g., "timetable_generated", "timetable_updated")
+        event_data: Dictionary with event-specific data
+        
+    Returns:
+        True if published successfully, False otherwise
+    """
+    try:
+        url = get_rabbitmq_url()
+        params = pika.URLParameters(url)
+        connection = pika.BlockingConnection(params)
+        channel = connection.channel()
+        
+        # Declare queue (idempotent)
+        channel.queue_declare(queue="notifications", durable=True)
+        
+        # Publish message
+        message = {
+            "event_type": event_type,
+            "event_data": event_data,
+        }
+        
+        channel.basic_publish(
+            exchange="",
+            routing_key="notifications",
+            body=json.dumps(message),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Make message persistent
+            ),
+        )
+        
+        connection.close()
+        return True
+    except Exception as e:
+        print(f"Failed to publish notification event to RabbitMQ: {e}")
+        return False
