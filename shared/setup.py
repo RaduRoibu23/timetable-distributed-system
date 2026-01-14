@@ -11,5 +11,6 @@ setup(
     install_requires=[
         "sqlalchemy>=2.0.0",
         "psycopg2-binary>=2.9.0",
+        "pika>=1.3.0",
     ],
 )

@@ -14,7 +14,6 @@ import pika
 from timetable_shared.db import SessionLocal
 from timetable_shared.models import TimetableJob, SchoolClass
 from timetable_shared.services.timetable_generator import generate_timetable_for_class
-from timetable_shared.services import notifications as notifications_service
 from timetable_shared.services import audit as audit_service
 
 
@@ -49,16 +48,19 @@ def process_job(job_id: int, class_id: int, db_session):
         # Publish notification event to RabbitMQ (Notifications Service will handle it)
         class_obj = db_session.query(SchoolClass).filter(SchoolClass.id == class_id).first()
         if class_obj:
-            from timetable_shared.services.rabbitmq_client import publish_notification_event
-            publish_notification_event(
-                "timetable_generated",
-                {
-                    "class_id": class_id,
-                    "class_name": class_obj.name,
-                    "job_id": job_id,
-                    "entries_count": len(entries),
-                }
-            )
+            try:
+                from timetable_shared.services.rabbitmq_client import publish_notification_event
+                publish_notification_event(
+                    "timetable_generated",
+                    {
+                        "class_id": class_id,
+                        "class_name": class_obj.name,
+                        "job_id": job_id,
+                        "entries_count": len(entries),
+                    }
+                )
+            except Exception as e:
+                print(f"[Worker] Failed to publish notification event: {e}")
         
         # Log audit action
         try:

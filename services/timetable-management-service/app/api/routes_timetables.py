@@ -312,6 +312,27 @@ def update_timetable_entry(
 
     db.commit()
     db.refresh(entry)
+    
+    # Publish notification event to RabbitMQ (Notifications Service will handle it)
+    try:
+        from app.services.rabbitmq_client import publish_notification_event
+        class_obj = db.query(SchoolClass).filter(SchoolClass.id == entry.class_id).first()
+        subject_obj = db.query(Subject).filter(Subject.id == entry.subject_id).first()
+        username = current_user.get("preferred_username", "sistem")
+        
+        publish_notification_event(
+            "timetable_entry_modified",
+            {
+                "class_id": entry.class_id,
+                "class_name": class_obj.name if class_obj else f"clasa {entry.class_id}",
+                "subject_name": subject_obj.name if subject_obj else f"materia {entry.subject_id}",
+                "username": username,
+                "entry_id": entry.id,
+            }
+        )
+    except Exception as e:
+        print(f"Failed to publish notification event: {e}")
+    
     return _to_read_model(db, entry)
 
 
