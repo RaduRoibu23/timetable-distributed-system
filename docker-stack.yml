@@ -72,7 +72,7 @@ services:
     networks:
       - scd-net
     volumes:
-      - /home/radu/scd/timetable-distributed-system/services/timetable-management-service/app:/app/app:ro
+      - C:/Users/roibu/Desktop/Facultateapl/ANUL 4/SCD/Proiect SCD/timetable-distributed-system/services/timetable-management-service/app:/app/app:ro
 
   timetable_frontend:
     image: roiburadu/timetable-frontend:dev

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_token
+from app.core.rbac import require_roles
 from app.db import get_db
 from app.models import Lesson as LessonModel, Room as RoomModel
 
@@ -47,7 +48,7 @@ class LessonRead(BaseModel):
 def create_lesson(
     lesson_in: LessonCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     payload = lesson_in.dict()
     room = None
@@ -91,7 +92,7 @@ def update_lesson(
     lesson_id: int,
     lesson_in: LessonUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     lesson = db.query(LessonModel).filter(LessonModel.id == lesson_id).first()
     if not lesson:
@@ -118,7 +119,7 @@ def update_lesson(
 def delete_lesson(
     lesson_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     lesson = db.query(LessonModel).filter(LessonModel.id == lesson_id).first()
     if not lesson:

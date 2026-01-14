@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from app.db import get_db
 from app.models import Room as RoomModel
 from app.core.security import verify_token
+from app.core.rbac import require_roles
 
 router = APIRouter(
     prefix="/rooms",
@@ -38,7 +39,7 @@ class RoomRead(RoomBase):
 def create_room(
     room_in: RoomCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     room = RoomModel(**room_in.dict())
     db.add(room)
@@ -92,7 +93,7 @@ def update_room(
     room_id: int,
     room_in: RoomCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     room = db.query(RoomModel).filter(RoomModel.id == room_id).first()
     if not room:
@@ -109,7 +110,7 @@ def update_room(
 def delete_room(
     room_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(verify_token),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
 ):
     room = db.query(RoomModel).filter(RoomModel.id == room_id).first()
     if not room:
