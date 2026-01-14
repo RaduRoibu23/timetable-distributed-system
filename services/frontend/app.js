@@ -87,64 +87,348 @@ function rolesFromToken(){
   return roles;
 }
 
-// Role -> actions mapping. Each action has id, label and demo api path.
-const ROLE_ACTIONS = {
-  admin: [
-    { id: 'create-room', label: 'Create room (admin)', apiPath: '/rooms' },
-    { id: 'manage-users', label: 'Manage users (admin)', apiPath: '/users' }
-  ],
-  scheduler: [
-    { id: 'run-scheduler', label: 'Run scheduler', apiPath: '/schedule/run' }
-  ],
-  professor: [
-    { id: 'my-lessons', label: 'My lessons', apiPath: '/lessons/mine' }
-  ],
-  student: [
-    { id: 'my-timetable', label: 'My timetable', apiPath: '/me' }
-  ]
-};
+// Helper function to generate unique names with timestamp
+function getUniqueName(prefix) {
+  const timestamp = Date.now();
+  return `${prefix}-${timestamp}`;
+}
+
+// All available actions with required roles
+const ALL_ACTIONS = [
+  // Catalog - Classes
+  { id: 'list-classes', label: 'Vezi Clase', apiPath: '/classes', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'create-class', label: 'Creează Clasă', apiPath: '/classes', method: 'POST', body: () => ({ name: getUniqueName('Clasa') }), requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'update-class', label: 'Modifică Clasă', apiPath: '/classes/{id}', method: 'PUT', body: () => ({ name: getUniqueName('Clasa-Mod') }), requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'delete-class', label: 'Șterge Clasă', apiPath: '/classes/{id}', method: 'DELETE', requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  
+  // Catalog - Subjects
+  { id: 'list-subjects', label: 'Vezi Materii', apiPath: '/subjects', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'create-subject', label: 'Creează Materie', apiPath: '/subjects', method: 'POST', body: () => ({ name: getUniqueName('Materie'), short_code: `M${Date.now().toString().slice(-4)}` }), requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'update-subject', label: 'Modifică Materie', apiPath: '/subjects/{id}', method: 'PUT', body: () => ({ name: getUniqueName('Materie-Mod'), short_code: `M${Date.now().toString().slice(-4)}` }), requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'delete-subject', label: 'Șterge Materie', apiPath: '/subjects/{id}', method: 'DELETE', requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  
+  // Catalog - Curricula
+  { id: 'list-curricula', label: 'Vezi Curricula', apiPath: '/curricula', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'create-curriculum', label: 'Creează Curriculum', apiPath: '/curricula', method: 'POST', body: async function() {
+    // Need to use apiGet from outer scope - will be called with context
+    const classes = await fetch(`${API_BASE}/classes`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' }
+    }).then(r => r.json());
+    const subjects = await fetch(`${API_BASE}/subjects`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' }
+    }).then(r => r.json());
+    if (!Array.isArray(classes) || classes.length === 0) throw new Error('Nu există clase disponibile');
+    if (!Array.isArray(subjects) || subjects.length === 0) throw new Error('Nu există materii disponibile');
+    // Find a combination that doesn't exist
+    const existing = await fetch(`${API_BASE}/curricula`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' }
+    }).then(r => r.json());
+    const existingKeys = new Set((existing || []).map(c => `${c.class_id}-${c.subject_id}`));
+    for (const cls of classes) {
+      for (const subj of subjects) {
+        const key = `${cls.id}-${subj.id}`;
+        if (!existingKeys.has(key)) {
+          return { class_id: cls.id, subject_id: subj.id, hours_per_week: 2 };
+        }
+      }
+    }
+    throw new Error('Toate combinațiile class-subject există deja');
+  }, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'update-curriculum', label: 'Modifică Curriculum', apiPath: '/curricula/{id}', method: 'PUT', body: () => ({ hours_per_week: 4 }), requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  { id: 'delete-curriculum', label: 'Șterge Curriculum', apiPath: '/curricula/{id}', method: 'DELETE', requiresId: true, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  
+  // Timetables
+  { id: 'view-my-timetable', label: 'Vezi Orarul Meu', apiPath: '/timetables/me', method: 'GET', requiresClassId: true, requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'view-class-timetable', label: 'Vezi Orar Clasă', apiPath: '/timetables/classes/1', method: 'GET', requiredRoles: ['professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'generate-timetable', label: 'Generează Orar', apiPath: '/timetables/generate', method: 'POST', body: () => ({ class_id: 1 }), requiredRoles: ['scheduler', 'secretariat', 'admin', 'sysadmin'] },
+  { id: 'modify-timetable', label: 'Modifică Orar', apiPath: '/timetables/entries/{id}', method: 'PATCH', body: async function() {
+    const subjects = await this.apiGet('/subjects');
+    const rooms = await this.apiGet('/rooms/');
+    if (!Array.isArray(subjects) || subjects.length === 0) throw new Error('Nu există materii disponibile');
+    if (!Array.isArray(rooms) || rooms.length === 0) throw new Error('Nu există săli disponibile');
+    return { subject_id: subjects[0].id, room_id: rooms[0].id };
+  }, requiresId: true, getIdFrom: '/timetables/classes/1', requiredRoles: ['scheduler', 'secretariat', 'admin', 'sysadmin'] },
+  
+  // Rooms
+  { id: 'list-rooms', label: 'Vezi Săli', apiPath: '/rooms/', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'create-room', label: 'Creează Sală', apiPath: '/rooms/', method: 'POST', body: () => ({ name: getUniqueName('Sala'), capacity: 30 }), requiredRoles: ['admin', 'sysadmin'] },
+  { id: 'update-room', label: 'Modifică Sală', apiPath: '/rooms/{id}', method: 'PUT', body: () => ({ name: getUniqueName('Sala-Mod'), capacity: 35 }), requiresId: true, requiredRoles: ['admin', 'sysadmin'] },
+  { id: 'delete-room', label: 'Șterge Sală', apiPath: '/rooms/{id}', method: 'DELETE', requiresId: true, requiredRoles: ['admin', 'sysadmin'] },
+  
+  // Notifications
+  { id: 'my-notifications', label: 'Notificările Mele', apiPath: '/notifications/me', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+  { id: 'send-notification', label: 'Trimite Notificare', apiPath: '/notifications/send', method: 'POST', body: async function() {
+    const classes = await this.apiGet('/classes');
+    if (!Array.isArray(classes) || classes.length === 0) throw new Error('Nu există clase disponibile');
+    return { target_type: 'class', target_id: classes[0].id, message: `Test notification ${new Date().toLocaleTimeString()}` };
+  }, requiredRoles: ['professor', 'secretariat', 'admin', 'sysadmin'] },
+  
+  // Lessons
+  { id: 'my-lessons', label: 'Lecțiile Mele', apiPath: '/lessons/mine', method: 'GET', requiredRoles: ['professor', 'secretariat', 'admin', 'sysadmin'] },
+  { id: 'list-lessons', label: 'Vezi Lecții', apiPath: '/lessons', method: 'GET', requiredRoles: ['professor', 'secretariat', 'admin', 'sysadmin'] },
+  { id: 'create-lesson', label: 'Creează Lecție', apiPath: '/lessons', method: 'POST', body: async function() {
+    const subjects = await this.apiGet('/subjects');
+    const classes = await this.apiGet('/classes');
+    const rooms = await this.apiGet('/rooms/');
+    if (!Array.isArray(subjects) || subjects.length === 0) throw new Error('Nu există materii disponibile');
+    if (!Array.isArray(classes) || classes.length === 0) throw new Error('Nu există clase disponibile');
+    if (!Array.isArray(rooms) || rooms.length === 0) throw new Error('Nu există săli disponibile');
+    return { 
+      title: `Lecție ${Date.now()}`, 
+      subject_id: subjects[0].id, 
+      class_id: classes[0].id, 
+      room_id: rooms[0].id,
+      weekday: 1,
+      start_time: '08:00:00',
+      end_time: '09:00:00'
+    };
+  }, requiredRoles: ['secretariat', 'admin', 'sysadmin'] },
+  
+  // User Info
+  { id: 'my-info', label: 'Informații Mele', apiPath: '/me', method: 'GET', requiredRoles: ['student', 'professor', 'secretariat', 'scheduler', 'admin', 'sysadmin'] },
+];
+
+function hasPermission(roles, requiredRoles) {
+  if (!requiredRoles || requiredRoles.length === 0) return true;
+  return roles.some(r => requiredRoles.includes(r));
+}
 
 function renderRoleActions(){
   const list = $('actions-list');
+  if (!list) {
+    console.error('actions-list element not found!');
+    return;
+  }
+  
   list.innerHTML = '';
   const roles = rolesFromToken();
-  const seen = new Set();
-  roles.forEach(r => {
-    const actions = ROLE_ACTIONS[r] || [];
-    actions.forEach(a => {
-      if (seen.has(a.id)) return; seen.add(a.id);
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = a.label;
-      btn.dataset.action = a.id;
-      btn.dataset.apipath = a.apiPath;
+  console.log('Current roles:', roles);
+  console.log('Rendering', ALL_ACTIONS.length, 'actions');
+  
+  ALL_ACTIONS.forEach(action => {
+    const hasAccess = hasPermission(roles, action.requiredRoles);
+    const btn = document.createElement('button');
+    btn.className = hasAccess ? 'btn' : 'btn btn-disabled';
+    btn.textContent = action.label;
+    btn.dataset.action = action.id;
+    btn.dataset.hasAccess = hasAccess;
+    
+    if (hasAccess) {
       btn.addEventListener('click', async () => {
         try{
-          await performRoleAction(r, a);
+          await performAction(action);
         } catch(err){
+          console.error('Button click error:', err);
           $('api-result').textContent = String(err.message || err);
         }
       });
-      list.appendChild(btn);
-    });
+    } else {
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+      btn.addEventListener('click', () => {
+        alert(`Rolul dvs. nu vă permite să efectuați această acțiune.\n\nAcțiune: ${action.label}\nRoluri necesare: ${action.requiredRoles.join(', ')}\nRolurile dvs.: ${roles.join(', ') || 'Niciun rol'}`);
+      });
+    }
+    
+    list.appendChild(btn);
   });
+  
+  console.log('Rendered', list.children.length, 'buttons');
+  
   if (!list.children.length){
-    const p = document.createElement('div'); p.className='hint'; p.textContent='Nicio acțiune disponibilă pentru rolurile tale.'; list.appendChild(p);
+    const p = document.createElement('div'); 
+    p.className='hint'; 
+    p.textContent='Nicio acțiune disponibilă.'; 
+    list.appendChild(p);
   }
 }
 
-async function performRoleAction(requiredRole, action){
-  const roles = rolesFromToken();
-  if (!roles.includes(requiredRole)){
-    throw new Error('Nu ai permisiunea pentru această acțiune.');
-  }
-  $('api-result').textContent = 'Se execută acțiunea...';
+async function performAction(action){
+  console.log('Executing action:', action);
+  $('api-result').textContent = `Se execută: ${action.label}...`;
   try{
-    const data = await apiGet(action.apiPath);
-    $('api-result').textContent = JSON.stringify(data, null, 2);
+    const method = action.method || 'GET';
+    let apiPath = action.apiPath;
+    
+    // Handle dynamic IDs for update/delete operations
+    if (action.requiresId && apiPath.includes('{id}')) {
+      // For update/delete, we need to get an ID first
+      let listPath = action.getIdFrom || apiPath.replace('/{id}', '').replace('{id}', '').replace(/\/$/, '');
+      const listData = await apiGet(listPath);
+      
+      if (!Array.isArray(listData) || listData.length === 0) {
+        throw new Error(`Nu există elemente disponibile pentru ${action.label}. Creează mai întâi un element.`);
+      }
+      
+      // Use first item's ID
+      const firstId = listData[0].id;
+      apiPath = apiPath.replace('{id}', firstId);
+      console.log(`Using ID ${firstId} for ${action.label}`);
+    }
+    
+    // Handle compat endpoints (like /lessons/mine which is actually /lessons/mine via compat router)
+    if (action.useCompat) {
+      // Keep path as is, it's handled by compat router
+    }
+    
+    // Handle class_id requirement for /timetables/me (non-students)
+    if (action.requiresClassId && apiPath.includes('/timetables/me')) {
+      const roles = rolesFromToken();
+      if (!roles.includes('student')) {
+        // Non-students need class_id
+        const classes = await apiGet('/classes');
+        if (Array.isArray(classes) && classes.length > 0) {
+          const classId = classes[0].id;
+          apiPath = `${apiPath}?class_id=${classId}`;
+          console.log(`Using class_id ${classId} for ${action.label}`);
+        } else {
+          throw new Error('Nu există clase disponibile. Creează mai întâi o clasă.');
+        }
+      }
+    }
+    
+    // Get body (call function if it's a function, otherwise use as-is)
+    let body = null;
+    if (action.body) {
+      if (typeof action.body === 'function') {
+        // Call with proper context so it can access apiGet, API_BASE, accessToken
+        body = await action.body.call({ apiGet, API_BASE, accessToken });
+      } else {
+        body = action.body;
+      }
+    }
+    
+    let data;
+    console.log(`Calling ${method} ${apiPath}`, body ? `with body: ${JSON.stringify(body)}` : '');
+    
+    if (method === 'GET') {
+      data = await apiGet(apiPath);
+    } else if (method === 'POST') {
+      data = await apiPost(apiPath, body || {});
+    } else if (method === 'PUT') {
+      data = await apiPut(apiPath, body || {});
+    } else if (method === 'PATCH') {
+      data = await apiPatch(apiPath, body || {});
+    } else if (method === 'DELETE') {
+      data = await apiDelete(apiPath);
+    } else {
+      data = await apiGet(apiPath);
+    }
+    
+    console.log('Response:', data);
+    
+    // Format response nicely
+    if (Array.isArray(data) && data.length > 0 && data[0].class_id && data[0].timeslot_id) {
+      // Timetable entries - format as table
+      $('api-result').textContent = formatTimetable(data);
+    } else {
+      $('api-result').textContent = JSON.stringify(data, null, 2);
+    }
   } catch (err){
-    $('api-result').textContent = `Eroare API: ${String(err.message || err)}`;
+    console.error('Action error:', err);
+    const errorMsg = err.message || String(err);
+    $('api-result').textContent = `❌ Eroare: ${errorMsg}\n\nEndpoint: ${action.method || 'GET'} ${action.apiPath}`;
+    alert(`Eroare la executarea acțiunii "${action.label}":\n\n${errorMsg}`);
   }
+}
+
+function formatTimetable(entries) {
+  if (!entries || entries.length === 0) return 'Nu există intrări în orar.';
+  
+  let result = `Orar (${entries.length} intrări):\n\n`;
+  result += 'Clasă | Materie | Slot | Sala\n';
+  result += '------|---------|------|-----\n';
+  entries.slice(0, 20).forEach(e => {
+    result += `${e.class_name || e.class_id} | ${e.subject_name || e.subject_id} | ${e.timeslot_name || `Zi ${e.timeslot_weekday} Ora ${e.timeslot_index}`} | ${e.room_name || '-'}\n`;
+  });
+  if (entries.length > 20) result += `... și ${entries.length - 20} mai multe\n`;
+  return result;
+}
+
+async function apiPost(path, body) {
+  if (!accessToken) throw new Error('Nu ești autentificat.');
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const txt = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch { }
+  if (!res.ok) {
+    const msg = parsed ? JSON.stringify(parsed, null, 2) : txt;
+    throw new Error(`API error ${res.status}\n${msg}`);
+  }
+  return parsed ?? txt;
+}
+
+async function apiPut(path, body) {
+  if (!accessToken) throw new Error('Nu ești autentificat.');
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const txt = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch { }
+  if (!res.ok) {
+    const msg = parsed ? JSON.stringify(parsed, null, 2) : txt;
+    throw new Error(`API error ${res.status}\n${msg}`);
+  }
+  return parsed ?? txt;
+}
+
+async function apiPatch(path, body) {
+  if (!accessToken) throw new Error('Nu ești autentificat.');
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const txt = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch { }
+  if (!res.ok) {
+    const msg = parsed ? JSON.stringify(parsed, null, 2) : txt;
+    throw new Error(`API error ${res.status}\n${msg}`);
+  }
+  return parsed ?? txt;
+}
+
+async function apiDelete(path) {
+  if (!accessToken) throw new Error('Nu ești autentificat.');
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Accept': 'application/json'
+    }
+  });
+  const txt = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch { }
+  if (!res.ok) {
+    const msg = parsed ? JSON.stringify(parsed, null, 2) : txt;
+    throw new Error(`API error ${res.status}\n${msg}`);
+  }
+  return parsed ?? { success: true };
 }
 
 function buildUserLabel(){
@@ -221,6 +505,9 @@ function showAuthenticatedUI(){
   } else {
     rv.textContent = 'Nu există o vedere specifică (rol necunoscut).';
   }
+
+  // Render all action buttons
+  renderRoleActions();
 }
 
 function showUnauthenticatedUI(){
@@ -332,9 +619,9 @@ function wireUI(){
   $('kc-client').textContent = CLIENT_ID;
   $('api-base').textContent = API_BASE;
 
-  $('btn-fill-admin').addEventListener('click', () => {
-    $('username').value = 'admin01';
-    $('password').value = 'admin01';
+  $('btn-fill-sysadmin').addEventListener('click', () => {
+    $('username').value = 'sysadmin01';
+    $('password').value = 'sysadmin01';
   });
   $('btn-fill-student').addEventListener('click', () => {
     $('username').value = 'student01';
@@ -391,7 +678,6 @@ function wireUI(){
   $('btn-call-me').addEventListener('click', async () => {
     $('api-result').textContent = 'Loading...';
     try{
-      // Ajustează endpoint-ul după backend-ul tău
       const data = await apiGet('/me');
       $('api-result').textContent = JSON.stringify(data, null, 2);
     } catch (err){
@@ -402,8 +688,51 @@ function wireUI(){
   $('btn-call-rooms').addEventListener('click', async () => {
     $('api-result').textContent = 'Loading...';
     try{
-      // Ajustează endpoint-ul după backend-ul tău
       const data = await apiGet('/rooms');
+      $('api-result').textContent = JSON.stringify(data, null, 2);
+    } catch (err){
+      $('api-result').textContent = String(err.message || err);
+    }
+  });
+
+  $('btn-call-classes').addEventListener('click', async () => {
+    $('api-result').textContent = 'Loading...';
+    try{
+      const data = await apiGet('/classes');
+      $('api-result').textContent = JSON.stringify(data, null, 2);
+    } catch (err){
+      $('api-result').textContent = String(err.message || err);
+    }
+  });
+
+  $('btn-call-subjects').addEventListener('click', async () => {
+    $('api-result').textContent = 'Loading...';
+    try{
+      const data = await apiGet('/subjects');
+      $('api-result').textContent = JSON.stringify(data, null, 2);
+    } catch (err){
+      $('api-result').textContent = String(err.message || err);
+    }
+  });
+
+  $('btn-call-timetable-me').addEventListener('click', async () => {
+    $('api-result').textContent = 'Loading...';
+    try{
+      const data = await apiGet('/timetables/me');
+      if (Array.isArray(data) && data.length > 0) {
+        $('api-result').textContent = formatTimetable(data);
+      } else {
+        $('api-result').textContent = JSON.stringify(data, null, 2);
+      }
+    } catch (err){
+      $('api-result').textContent = String(err.message || err);
+    }
+  });
+
+  $('btn-call-notifications').addEventListener('click', async () => {
+    $('api-result').textContent = 'Loading...';
+    try{
+      const data = await apiGet('/notifications/me');
       $('api-result').textContent = JSON.stringify(data, null, 2);
     } catch (err){
       $('api-result').textContent = String(err.message || err);

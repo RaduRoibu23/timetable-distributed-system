@@ -126,13 +126,20 @@ def seed_demo_data():
         ensure_curriculum_for_class(ix_a)
         ensure_curriculum_for_class(ix_b)
 
-        # Map student01 to class IX-A
+        # Map students to classes
         _get_or_create(
             session,
             UserProfile,
             username="student01",
             defaults={"class_id": ix_a.id},
         )
+        
+        # Add some rooms for testing
+        from app.models import Room
+        _get_or_create(session, Room, name="Sala 101", defaults={"capacity": 30})
+        _get_or_create(session, Room, name="Sala 102", defaults={"capacity": 25})
+        _get_or_create(session, Room, name="Laborator Informatică", defaults={"capacity": 20})
+        _get_or_create(session, Room, name="Sala Sport", defaults={"capacity": 50})
 
         session.commit()
 

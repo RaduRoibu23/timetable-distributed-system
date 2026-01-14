@@ -230,9 +230,10 @@ bash demos/test_auth.sh
 ```
 timetable-distributed-system/
 ├── docker-stack.yml              # Configurație Docker Swarm
+├── build-images.sh               # Script pentru build imagini Docker
 ├── keycloak/
 │   └── realms/
-│       └── timetable-realm.json # Configurație realm Keycloak
+│       └── timetable-realm.json # Configurație realm Keycloak (import automat)
 ├── services/
 │   ├── timetable-management-service/
 │   │   ├── app/
@@ -241,25 +242,51 @@ timetable-distributed-system/
 │   │   │   │   ├── routes_rooms.py
 │   │   │   │   ├── routes_lessons.py
 │   │   │   │   ├── routes_catalog_read.py
-│   │   │   │   └── routes_timetables.py
+│   │   │   │   ├── routes_timetables.py
+│   │   │   │   ├── routes_notifications.py
+│   │   │   │   └── routes_compat.py
 │   │   │   ├── core/             # Configurație și securitate
 │   │   │   │   ├── config.py
 │   │   │   │   ├── security.py
 │   │   │   │   └── rbac.py       # RBAC dependency
 │   │   │   ├── services/         # Logică business
-│   │   │   │   └── timetable_generator.py
+│   │   │   │   ├── timetable_generator.py
+│   │   │   │   ├── notifications.py
+│   │   │   │   ├── rabbitmq_client.py
+│   │   │   │   └── audit.py
 │   │   │   ├── models.py         # Modele SQLAlchemy
 │   │   │   ├── db.py             # Configurație DB
 │   │   │   ├── init_db.py        # Seed automat
 │   │   │   └── main.py           # Entry point FastAPI
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
+│   ├── scheduling-engine-service/
+│   │   ├── app/
+│   │   │   └── main.py           # Worker pentru generare asincronă
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
 │   └── frontend/                 # Frontend static (demo)
+│       ├── app.js
+│       ├── index.html
+│       ├── styles.css
+│       ├── config.js
+│       ├── nginx.conf
+│       └── Dockerfile
 ├── demos/                        # Scripturi de test
 │   ├── test_auth.sh
 │   ├── test_rbac.sh
 │   ├── test_seed.sh
-│   └── test_timetable_me.sh
+│   ├── test_timetable_me.sh
+│   ├── test_notifications.sh
+│   ├── test_rooms.sh
+│   ├── test_lessons.sh
+│   ├── test_catalog_crud.sh
+│   ├── test_timetable_patch.sh
+│   ├── test_async_generation.sh
+│   ├── test_all_roles.sh
+│   ├── test_frontend_compat.sh
+│   ├── seed_keycloak.sh
+│   └── find_user.sh
 └── README.md
 ```
 
@@ -306,9 +333,32 @@ curl "http://localhost:8000/timetables/me" \
 
 ## 🛠️ Dezvoltare
 
-### Rebuild Backend (după modificări)
+### Build Images
+Pentru a construi imaginile Docker pentru serviciile custom:
 ```bash
+bash build-images.sh
+```
+
+Aceasta va construi:
+- `roiburadu/timetable-management-service:dev1`
+- `roiburadu/scheduling-engine-service:dev1`
+
+**Notă**: Frontend-ul (`roiburadu/timetable-frontend:dev`) trebuie construit manual:
+```bash
+cd services/frontend
+docker build -t roiburadu/timetable-frontend:dev .
+```
+
+### Rebuild Services (după modificări)
+```bash
+# Backend
 docker service update --force scd_timetable_backend
+
+# Frontend
+docker service update --force scd_timetable_frontend
+
+# Scheduling Engine
+docker service update --force scd_scheduling_engine
 ```
 
 ### Logs
