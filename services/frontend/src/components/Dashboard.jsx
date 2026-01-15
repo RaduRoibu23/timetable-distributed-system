@@ -1,28 +1,41 @@
-import { useState, useEffect } from 'react';
-import { rolesFromToken, tokenExpiryText, refreshAccessToken, loadSession } from '../services/authService';
-import { apiGet } from '../services/apiService';
-import { CONFIG } from '../config';
-import ActionsList from './ActionsList';
-import ResultsPanel from './ResultsPanel';
+import { useEffect, useMemo, useState } from "react";
+import { rolesFromToken, tokenExpiryText, loadSession, refreshAccessToken } from "../services/authService";
+import Sidebar, { NAV_ITEMS } from "./Sidebar";
+import TimetableScreen from "./TimetableScreen";
+import GenerateTimetableScreen from "./GenerateTimetableScreen";
+import ConflictsScreen from "./ConflictsScreen";
+import AuditLogsScreen from "./AuditLogsScreen";
+import StatsScreen from "./StatsScreen";
+
+function hasAnyRole(userRoles, allowedRoles) {
+  if (!allowedRoles || allowedRoles.length === 0) return true;
+  return userRoles.some((r) => allowedRoles.includes(r));
+}
+
+function defaultActionForRoles(roles) {
+  // Student/professor -> orarul meu
+  if (roles.includes("student") || roles.includes("professor")) return "my-timetable";
+  // Secretariat/scheduler/admin/sysadmin -> orar pe clasă
+  return "class-timetable";
+}
 
 export default function Dashboard({ accessToken, idToken, onRefreshToken, onLogout }) {
-  const [userInfo, setUserInfo] = useState(null);
-  const [results, setResults] = useState({ title: '', content: '', visible: false });
+  const roles = useMemo(() => rolesFromToken(accessToken), [accessToken]);
+  const expiry = tokenExpiryText(accessToken);
 
+  const visibleActionIds = useMemo(() => {
+    return NAV_ITEMS
+      .filter((i) => hasAnyRole(roles, i.allowedRoles))
+      .map((i) => i.id);
+  }, [roles]);
+
+  const [active, setActive] = useState(() => defaultActionForRoles(roles));
+
+  // dacă rolurile se schimbă (refresh token) sau active nu mai e permis, corectăm
   useEffect(() => {
-    if (accessToken) {
-      loadUserInfo();
-    }
-  }, [accessToken]);
-
-  const loadUserInfo = async () => {
-    try {
-      const data = await apiGet('/me', accessToken);
-      setUserInfo(data);
-    } catch (err) {
-      console.error('Failed to load user info:', err);
-    }
-  };
+    const def = defaultActionForRoles(roles);
+    if (!visibleActionIds.includes(active)) setActive(def);
+  }, [roles, visibleActionIds, active]);
 
   const handleRefreshToken = async () => {
     try {
@@ -30,80 +43,52 @@ export default function Dashboard({ accessToken, idToken, onRefreshToken, onLogo
       if (session?.refreshToken) {
         const tokens = await refreshAccessToken(session.refreshToken);
         onRefreshToken(tokens);
-        await loadUserInfo();
       }
     } catch (err) {
-      console.error('Token refresh failed:', err);
+      console.error("Token refresh failed:", err);
     }
   };
 
-  const roles = rolesFromToken(accessToken);
-  const tokenExp = tokenExpiryText(accessToken);
-
   return (
-    <div className="card" id="dashboard-card">
-      <div className="card-header">
-        <h2>Dashboard</h2>
-        <p>Informații sesiune, roluri și operații demo pe API.</p>
-      </div>
+    <div className="appShell">
+      <Sidebar roles={roles} activeId={active} onSelect={setActive} />
 
-      <div className="card-body">
-        <div className="dashboard-grid">
-          <div className="dashboard-left">
-            <div className="kv">
-              <div className="k">User</div>
-              <div className="v" id="user-info">
-                {userInfo ? `${userInfo.username || '—'}` : '—'}
-              </div>
-
-              <div className="k">Roles</div>
-              <div className="v">
-                <div className="pills">
-                  {roles.map((role) => (
-                    <span key={role} className="pill ok">
-                      {role}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="k">Token expires</div>
-              <div className="v" id="token-exp">{tokenExp}</div>
-
-              <div className="k">API Base</div>
-              <div className="v">
-                <code className="inline">{CONFIG.api.baseUrl}</code>
-              </div>
-            </div>
-
-            <ActionsList
-              accessToken={accessToken}
-              roles={roles}
-              onActionResult={(title, content) => {
-                setResults({ title, content, visible: true });
-              }}
-            />
+      <main className="content">
+        <div className="topBar">
+          <div className="topBarLeft">
+            <div className="topTitle">Timetable Management</div>
+            <div className="topSub">Token exp: {expiry}</div>
           </div>
-
-          <div className="dashboard-right">
-            <ResultsPanel
-              title={results.title}
-              content={results.content}
-              visible={results.visible}
-              onClose={() => setResults({ ...results, visible: false })}
-            />
+          <div className="topBarRight">
+            <button className="btn" onClick={handleRefreshToken}>Refresh token</button>
+            <button className="btn danger" onClick={onLogout}>Logout</button>
           </div>
         </div>
 
-        <div className="row row-wrap" style={{ marginTop: '12px' }}>
-          <button className="btn" onClick={handleRefreshToken}>
-            Refresh token
-          </button>
-          <button className="btn btn-danger" onClick={onLogout}>
-            Logout
-          </button>
-        </div>
-      </div>
+        {active === "my-timetable" && (
+          <TimetableScreen accessToken={accessToken} roles={roles} mode="my" />
+        )}
+
+        {active === "class-timetable" && (
+          <TimetableScreen accessToken={accessToken} roles={roles} mode="class" />
+        )}
+
+        {active === "generate" && (
+          <GenerateTimetableScreen accessToken={accessToken} roles={roles} />
+        )}
+
+        {active === "conflicts" && (
+          <ConflictsScreen accessToken={accessToken} roles={roles} />
+        )}
+
+        {active === "audit" && (
+          <AuditLogsScreen accessToken={accessToken} roles={roles} />
+        )}
+
+        {active === "stats" && (
+          <StatsScreen accessToken={accessToken} roles={roles} />
+        )}
+      </main>
     </div>
   );
 }
