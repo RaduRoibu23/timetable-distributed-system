@@ -3,20 +3,20 @@ import { apiGet, apiPatch } from "../services/apiService";
 
 const WEEKDAY = ["Luni", "Marți", "Miercuri", "Joi", "Vineri"];
 const TIME_LABELS = {
-    1: "13:00–14:00",
-    2: "14:00–15:00",
-    3: "15:00–16:00",
-    4: "16:00–17:00",
-    5: "17:00–18:00",
-    6: "18:00–19:00",
-    7: "19:00–20:00",
-  };
-  
+  1: "13:00–14:00",
+  2: "14:00–15:00",
+  3: "15:00–16:00",
+  4: "16:00–17:00",
+  5: "17:00–18:00",
+  6: "18:00–19:00",
+  7: "19:00–20:00",
+};
+
+const POLL_MS = 8000; // pentru demo (student vede actualizări la ~8s)
 
 function canEdit(roles) {
-  // ajustezi aici dacă vrei să permită și secretariat/professor etc.
   const allowed = ["secretariat", "scheduler", "admin", "sysadmin"];
-  return roles.some(r => allowed.includes(r));
+  return roles.some((r) => allowed.includes(r));
 }
 
 function normalizeRoom(val) {
@@ -26,6 +26,15 @@ function normalizeRoom(val) {
   return Number.isFinite(n) ? n : null;
 }
 
+function signature(list) {
+  return JSON.stringify(
+    (Array.isArray(list) ? list : [])
+      .slice()
+      .sort((a, b) => a.id - b.id)
+      .map((e) => ({ id: e.id, s: e.subject_id, r: e.room_id ?? null, v: e.version }))
+  );
+}
+
 export default function TimetableScreen({ accessToken, roles, mode }) {
   // mode: "my" | "class"
   const [loading, setLoading] = useState(false);
@@ -33,11 +42,12 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
 
   const [classes, setClasses] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState(1);
+  const [classSearch, setClassSearch] = useState("");
 
   const [subjects, setSubjects] = useState([]);
   const subjectsById = useMemo(() => {
     const m = new Map();
-    subjects.forEach(s => m.set(s.id, s));
+    subjects.forEach((s) => m.set(s.id, s));
     return m;
   }, [subjects]);
 
@@ -45,7 +55,26 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
   const [original, setOriginal] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
 
+  // concurrency UX
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+
+  // student notification (poll)
+  const [lastSig, setLastSig] = useState("");
+
   const editingAllowed = canEdit(roles);
+
+  const filteredClasses = useMemo(() => {
+    if (!classSearch.trim()) return classes;
+    const q = classSearch.trim().toLowerCase();
+    return classes.filter((c) =>
+      String(c.name ?? c.class_name ?? c.id).toLowerCase().includes(q)
+    );
+  }, [classes, classSearch]);
+
+  const selectedClassName = useMemo(() => {
+    const c = classes.find((x) => x.id === selectedClassId);
+    return c?.name ?? c?.class_name ?? "";
+  }, [classes, selectedClassId]);
 
   async function loadSubjects() {
     const s = await apiGet("/subjects", accessToken);
@@ -54,35 +83,35 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
 
   async function loadClasses() {
     const c = await apiGet("/classes", accessToken);
-    setClasses(Array.isArray(c) ? c : []);
-    if (Array.isArray(c) && c.length > 0) {
-      setSelectedClassId(c[0].id);
-    }
+    const list = Array.isArray(c) ? c : [];
+    setClasses(list);
+    if (list.length > 0) setSelectedClassId(list[0].id);
   }
 
   async function loadTimetableForClass(classId) {
     const data = await apiGet(`/timetables/classes/${classId}`, accessToken);
     const list = Array.isArray(data) ? data : [];
-    // sort minimal: weekday, index_in_day
     list.sort((a, b) => (a.weekday - b.weekday) || (a.index_in_day - b.index_in_day));
     setEntries(list);
     setOriginal(JSON.parse(JSON.stringify(list)));
+    setLastSig(signature(list));
   }
 
-  // Minimal: "orarul meu" încearcă să deducă class_id din /me.
-  // Dacă /me nu conține class_id, UI va arăta mesaj clar.
   async function loadMyTimetable() {
     const me = await apiGet("/me", accessToken);
     const classId = me?.class_id ?? me?.classId ?? me?.class?.id;
+
     if (!classId) {
       setEntries([]);
       setOriginal([]);
+      setLastSig("");
       setBanner({
         type: "warn",
-        text: "Nu pot determina clasa ta din /me (lipsește class_id). Pentru student trebuie fie /me să includă class_id, fie un endpoint dedicat (ex: /timetables/me).",
+        text: "Nu pot determina clasa ta din /me (lipsește class_id).",
       });
       return;
     }
+
     await loadTimetableForClass(classId);
   }
 
@@ -91,9 +120,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     setBanner(null);
     try {
       await loadSubjects();
-      if (mode === "class") {
-        await loadClasses();
-      }
+      if (mode === "class") await loadClasses();
     } catch (e) {
       setBanner({ type: "error", text: String(e.message || e) });
     } finally {
@@ -107,16 +134,12 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
   }, [mode]);
 
   useEffect(() => {
-    // auto-load data when mode changes / class changes
     (async () => {
       setBanner(null);
       setLoading(true);
       try {
-        if (mode === "class") {
-          await loadTimetableForClass(selectedClassId);
-        } else {
-          await loadMyTimetable();
-        }
+        if (mode === "class") await loadTimetableForClass(selectedClassId);
+        else await loadMyTimetable();
       } catch (e) {
         setBanner({ type: "error", text: String(e.message || e) });
       } finally {
@@ -126,32 +149,51 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, selectedClassId]);
 
-  function beginEdit() {
-    setIsEditing(true);
-    setBanner(null);
-  }
+  // Polling pentru student/profesor: dacă se schimbă orarul în backend -> notificare + refresh local
+  useEffect(() => {
+    if (mode !== "my") return;
+    if (isEditing) return;
 
-  function cancelEdit() {
-    setIsEditing(false);
-    // revert
-    setEntries(JSON.parse(JSON.stringify(original)));
-    setBanner(null);
-  }
+    const t = setInterval(async () => {
+      try {
+        const me = await apiGet("/me", accessToken);
+        const classId = me?.class_id ?? me?.classId ?? me?.class?.id;
+        if (!classId) return;
+
+        const data = await apiGet(`/timetables/classes/${classId}`, accessToken);
+        const list = Array.isArray(data) ? data : [];
+        list.sort((a, b) => (a.weekday - b.weekday) || (a.index_in_day - b.index_in_day));
+
+        const sig = signature(list);
+        if (lastSig && sig !== lastSig) {
+          setEntries(list);
+          setOriginal(JSON.parse(JSON.stringify(list)));
+          setLastSig(sig);
+          setBanner({ type: "ok", text: "Orarul a fost actualizat." });
+        }
+      } catch {
+        // silent
+      }
+    }, POLL_MS);
+
+    return () => clearInterval(t);
+  }, [mode, isEditing, accessToken, lastSig]);
 
   function updateEntryLocal(entryId, patch) {
-    setEntries(prev =>
-      prev.map(e => (e.id === entryId ? { ...e, ...patch } : e))
-    );
+    setEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e)));
   }
 
   function computeChanges() {
-    const origById = new Map(original.map(e => [e.id, e]));
+    const origById = new Map(original.map((e) => [e.id, e]));
     const changed = [];
+
     for (const e of entries) {
       const o = origById.get(e.id);
       if (!o) continue;
+
       const subjectChanged = e.subject_id !== o.subject_id;
       const roomChanged = (e.room_id ?? null) !== (o.room_id ?? null);
+
       if (subjectChanged || roomChanged) {
         const body = { version: e.version };
         if (subjectChanged) body.subject_id = e.subject_id;
@@ -160,6 +202,23 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       }
     }
     return changed;
+  }
+
+  function beginEdit() {
+    setNeedsRefresh(false);
+    setIsEditing(true);
+    setBanner(null);
+  }
+
+  function cancelEdit() {
+    const changes = computeChanges();
+    if (changes.length > 0) {
+      const ok = window.confirm("Ai modificări nesalvate. Renunți la ele?");
+      if (!ok) return;
+    }
+    setIsEditing(false);
+    setEntries(JSON.parse(JSON.stringify(original)));
+    setBanner(null);
   }
 
   async function saveAll() {
@@ -178,27 +237,49 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       for (const ch of changes) {
         await apiPatch(`/timetables/entries/${ch.id}`, ch.body, accessToken);
       }
-      setBanner({ type: "ok", text: "Modificările au fost salvate." });
+
       setIsEditing(false);
+      setNeedsRefresh(false);
 
       // refetch (global truth)
       if (mode === "class") {
         await loadTimetableForClass(selectedClassId);
+        setBanner({
+          type: "ok",
+          text: "Modificările au fost salvate. Studenții vor vedea actualizarea (auto-refresh).",
+        });
       } else {
         await loadMyTimetable();
+        setBanner({ type: "ok", text: "Modificările au fost salvate." });
       }
     } catch (e) {
       const msg = String(e.message || e);
 
-      // Heuristic: optimistic lock conflict => refresh suggestion
+      // optimistic lock / locking conflicts
       if (msg.includes("API error 409") || msg.includes("API error 412") || msg.includes("API error 423")) {
+        setNeedsRefresh(true);
         setBanner({
           type: "warn",
-          text: "Concurență detectată (versiune depășită / blocare). Am nevoie de Refresh ca să preiei varianta curentă.",
+          text: "Concurență detectată (versiune depășită / blocare). Apasă Refresh ca să preiei varianta curentă.",
         });
       } else {
         setBanner({ type: "error", text: msg });
       }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshNow() {
+    setNeedsRefresh(false);
+    setIsEditing(false);
+    setBanner(null);
+    setLoading(true);
+    try {
+      if (mode === "class") await loadTimetableForClass(selectedClassId);
+      else await loadMyTimetable();
+    } catch (e) {
+      setBanner({ type: "error", text: String(e.message || e) });
     } finally {
       setLoading(false);
     }
@@ -209,10 +290,14 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       <div className="contentHeader">
         <div>
           <div className="title">
-            {mode === "class" ? "Orar pe clasă" : "Orarul meu"}
+            {mode === "class"
+              ? `Orar pe clasă${selectedClassName ? ` — ${selectedClassName}` : ""}`
+              : "Orarul meu"}
           </div>
           <div className="subtitle">
-            Tabel minimal cu editare (subject/room) + optimistic locking.
+            {isEditing
+              ? "Editing mode: modificările nu sunt salvate încă."
+              : "Vizualizare (grid zile × intervale)."}
           </div>
         </div>
 
@@ -220,13 +305,23 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
           {mode === "class" && (
             <div className="row">
               <label className="label">Clasă</label>
+
+              <input
+                className="input"
+                placeholder="Caută (ex: IX-A)"
+                value={classSearch}
+                onChange={(e) => setClassSearch(e.target.value)}
+                disabled={loading || isEditing}
+                style={{ width: 180 }}
+              />
+
               <select
                 className="select"
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(Number(e.target.value))}
                 disabled={loading || isEditing}
               >
-                {classes.map(c => (
+                {filteredClasses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name ?? c.class_name ?? `Clasa ${c.id}`}
                   </option>
@@ -236,7 +331,11 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
           )}
 
           {editingAllowed && !isEditing && (
-            <button className="btn primary" onClick={beginEdit} disabled={loading || entries.length === 0}>
+            <button
+              className="btn primary"
+              onClick={beginEdit}
+              disabled={loading || entries.length === 0 || needsRefresh}
+            >
               Edit
             </button>
           )}
@@ -256,7 +355,15 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
 
       {banner && (
         <div className={`banner ${banner.type}`}>
-          {banner.text}
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+            <div>{banner.text}</div>
+
+            {needsRefresh && (
+              <button className="btn" onClick={refreshNow} disabled={loading}>
+                Refresh
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -264,14 +371,12 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
         <div className="mutedBlock">Loading...</div>
       ) : entries.length === 0 ? (
         <div className="mutedBlock">Nu există intrări de orar.</div>
-    ) : (
+      ) : (
         (() => {
           const byKey = new Map();
-          for (const e of entries) {
-            byKey.set(`${e.weekday}-${e.index_in_day}`, e);
-          }
+          for (const e of entries) byKey.set(`${e.weekday}-${e.index_in_day}`, e);
 
-          const maxIdx = Math.max(7, ...entries.map(e => e.index_in_day || 0));
+          const maxIdx = Math.max(7, ...entries.map((e) => e.index_in_day || 0));
           const rows = Array.from({ length: maxIdx }, (_, i) => i + 1);
           const weekdays = [0, 1, 2, 3, 4];
 
@@ -288,6 +393,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                     <th>Vineri</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {rows.map((idx) => (
                     <tr key={idx}>
@@ -347,6 +453,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                                     updateEntryLocal(cell.id, { room_id: normalizeRoom(ev.target.value) })
                                   }
                                 />
+
                                 <div className="cellVersion">v{cell.version}</div>
                               </div>
                             )}

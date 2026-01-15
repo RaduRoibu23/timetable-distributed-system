@@ -5,7 +5,7 @@ export default function Header({ status }) {
         <div className="logo" aria-hidden="true"></div>
         <div>
           <h1>Timetable Management Distributed System</h1>
-          <div className="sub">SCD — Frontend demo (Keycloak + API)</div>
+          <div className="sub">SCD — Frontend</div>
         </div>
       </div>
       <div id="status-badge" className="badge">

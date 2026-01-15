@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { login } from '../services/authService';
 import { CONFIG } from '../config';
 
@@ -8,12 +8,11 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const doLogin = async (u, p) => {
     setError('');
     setLoading(true);
     try {
-      const tokens = await login(username, password);
+      const tokens = await login(u, p);
       onLogin(tokens);
     } catch (err) {
       setError(err.message || 'Login failed');
@@ -22,23 +21,27 @@ export default function Login({ onLogin }) {
     }
   };
 
-  const fillSysadmin = () => {
-    setUsername('sysadmin01');
-    setPassword('sysadmin01');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await doLogin(username, password);
   };
 
-  const fillStudent = () => {
-    setUsername('student01');
-    setPassword('student01');
+  const demoUsers = CONFIG.demoUsers || [];
+
+  const loginPreset = async (u) => {
+    // ca să vezi în UI cu ce user ești logat
+    setUsername(u.username);
+    setPassword(u.password);
+    await doLogin(u.username, u.password);
   };
 
   return (
-    <div className="card" id="login-card">
-      <div className="card-header">
-        <h2>Autentificare</h2>
-        <p>Login simplu prin Keycloak Direct Grant (pentru demo/proiect).</p>
-      </div>
-      <div className="card-body">
+      <div className="loginPage">
+       <div className="loginCard">
+          <div className="title">Login</div>
+          <div className="subtitle">Keycloak Direct Grant</div>
+        </div>
+
         <form onSubmit={handleSubmit}>
           <div className="field">
             <div className="label">Username</div>
@@ -47,7 +50,7 @@ export default function Login({ onLogin }) {
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="ex: admin / student1"
+              placeholder="user"
               required
             />
           </div>
@@ -69,12 +72,19 @@ export default function Login({ onLogin }) {
             <button className="btn btn-primary" type="submit" disabled={loading}>
               {loading ? 'Se conectează...' : 'Login'}
             </button>
-            <button className="btn" type="button" onClick={fillSysadmin}>
-              Autofill sysadmin
-            </button>
-            <button className="btn" type="button" onClick={fillStudent}>
-              Autofill student
-            </button>
+
+            {demoUsers.map((u) => (
+              <button
+                key={u.label}
+                className="btn"
+                type="button"
+                onClick={() => loginPreset(u)}
+                disabled={loading}
+                title={`Login: ${u.username}`}
+              >
+                Login {u.label}
+              </button>
+            ))}
           </div>
 
           <div className="hint" style={{ marginTop: '10px' }}>
@@ -83,11 +93,8 @@ export default function Login({ onLogin }) {
             Client: <code className="inline">{CONFIG.keycloak.clientId}</code>
           </div>
 
-          {error && (
-            <div className="alert">{error}</div>
-          )}
+          {error && <div className="alert">{error}</div>}
         </form>
       </div>
-    </div>
   );
 }

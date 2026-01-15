@@ -17,7 +17,11 @@
 }
 
 *{ box-sizing:border-box; }
-html,body{ height:100%; }
+html, body{
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
 body{
   margin:0;
   font-family: var(--font);
@@ -33,9 +37,9 @@ a{ color: var(--accent); text-decoration: none; }
 a:hover{ text-decoration: underline; }
 
 .container{
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 28px 18px 60px;
+  max-width: none;
+  margin: 0;
+  padding: 24px 24px 24px 24px;
 }
 
 .header{
@@ -781,6 +785,49 @@ code.inline{
   max-height: 520px;
   font-size: 12px;
   color: var(--text);
+}
+/* Login full-screen centered (nu depinde de #root) */
+.loginPage{
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+  box-sizing: border-box;
+
+  z-index: 9999;
+}
+
+/* Card mic, centrat */
+.loginCard{
+  width: 100%;
+  max-width: 520px;      /* fă-l 460/480 dacă vrei mai mic */
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  border-radius: 18px;
+  padding: 18px;
+
+  /* redundanță utilă: dacă părintele nu e flex, tot se centrează */
+  margin: 0 auto;
+}
+
+/* Input-urile rămân la lățimea cardului */
+.loginCard .input,
+.loginCard .select{
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Butoanele să nu împingă cardul */
+.loginCard .row-wrap{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 
