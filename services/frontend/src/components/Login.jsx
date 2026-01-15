@@ -36,11 +36,10 @@ export default function Login({ onLogin }) {
   };
 
   return (
-      <div className="loginPage">
-       <div className="loginCard">
-          <div className="title">Login</div>
-          <div className="subtitle">Keycloak Direct Grant</div>
-        </div>
+    <div className="loginPage">
+      <div className="loginCard">
+        <div className="title">Login</div>
+        <div className="subtitle">Timetable Management System</div>
 
         <form onSubmit={handleSubmit}>
           <div className="field">
@@ -68,33 +67,32 @@ export default function Login({ onLogin }) {
             />
           </div>
 
-          <div className="row row-wrap">
-            <button className="btn btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Se conectează...' : 'Login'}
-            </button>
+          <button className="btn btn-primary loginMainBtn" type="submit" disabled={loading}>
+            {loading ? 'Se conecteaza...' : 'Login'}
+          </button>
 
+          <div className="quickLoginGrid">
             {demoUsers.map((u) => (
               <button
                 key={u.label}
-                className="btn"
+                className="btn btnSmall"
                 type="button"
                 onClick={() => loginPreset(u)}
                 disabled={loading}
                 title={`Login: ${u.username}`}
               >
-                Login {u.label}
+                {u.label}
               </button>
             ))}
-          </div>
-
-          <div className="hint" style={{ marginTop: '10px' }}>
-            Keycloak: <code className="inline">{CONFIG.keycloak.url}</code><br />
-            Realm: <code className="inline">{CONFIG.keycloak.realm}</code><br />
-            Client: <code className="inline">{CONFIG.keycloak.clientId}</code>
           </div>
 
           {error && <div className="alert">{error}</div>}
         </form>
       </div>
+
+      <div className="loginFooter">
+        {CONFIG.keycloak.url} | {CONFIG.keycloak.realm} | {CONFIG.keycloak.clientId}
+      </div>
+    </div>
   );
 }

@@ -4,9 +4,8 @@
 set -e
 
 echo "Building timetable-management-service..."
-cd services/timetable-management-service
-docker build -t roiburadu/timetable-management-service:dev1 .
-cd ../..
+# Build from project root to access shared package
+docker build -f services/timetable-management-service/Dockerfile -t roiburadu/timetable-management-service:dev1 .
 
 echo "Building scheduling-engine-service..."
 # Build from project root to access shared package

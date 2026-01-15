@@ -6,6 +6,9 @@ import GenerateTimetableScreen from "./GenerateTimetableScreen";
 import ConflictsScreen from "./ConflictsScreen";
 import AuditLogsScreen from "./AuditLogsScreen";
 import StatsScreen from "./StatsScreen";
+import NotificationPopup from "./NotificationPopup";
+import ProfileScreen from "./ProfileScreen";
+import StudentsScreen from "./StudentsScreen";
 
 function hasAnyRole(userRoles, allowedRoles) {
   if (!allowedRoles || allowedRoles.length === 0) return true;
@@ -51,6 +54,7 @@ export default function Dashboard({ accessToken, idToken, onRefreshToken, onLogo
 
   return (
     <div className="appShell">
+      <NotificationPopup accessToken={accessToken} />
       <Sidebar roles={roles} activeId={active} onSelect={setActive} />
 
       <main className="content">
@@ -87,6 +91,14 @@ export default function Dashboard({ accessToken, idToken, onRefreshToken, onLogo
 
         {active === "stats" && (
           <StatsScreen accessToken={accessToken} roles={roles} />
+        )}
+
+        {active === "profile" && (
+          <ProfileScreen accessToken={accessToken} roles={roles} />
+        )}
+
+        {active === "students" && (
+          <StudentsScreen accessToken={accessToken} roles={roles} />
         )}
       </main>
     </div>

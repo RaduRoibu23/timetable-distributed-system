@@ -1,5 +1,6 @@
 import React from "react";
 
+
 export const NAV_ITEMS = [
   // Student / Professor: au "orarul meu"
   { id: "my-timetable", label: "Orarul meu", allowedRoles: ["student", "professor"] },
@@ -14,6 +15,9 @@ export const NAV_ITEMS = [
   // Strict admin/sysadmin
   { id: "audit", label: "Audit logs", allowedRoles: ["admin", "sysadmin"] },
   { id: "stats", label: "Stats", allowedRoles: ["admin", "sysadmin"] },
+
+  { id: "students", label: "Studenți", allowedRoles: ["secretariat", "scheduler", "admin", "sysadmin"] },
+  { id: "profile", label: "Date personale", allowedRoles: [] },
 ];
 
 function hasAnyRole(userRoles, allowedRoles) {

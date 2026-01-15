@@ -41,6 +41,7 @@ class TimetableEntryRead(BaseModel):
     timeslot_id: int
     subject_id: int
     room_id: int | None = None
+    version: int = 1  # For optimistic locking
 
     # denormalized fields for frontend
     class_name: str | None = None
@@ -54,6 +55,7 @@ class TimetableEntryRead(BaseModel):
 class TimetableEntryUpdate(BaseModel):
     subject_id: int | None = None
     room_id: int | None = None
+    version: int  # Required for optimistic locking
 
 
 @router.post(
@@ -171,7 +173,7 @@ def update_timetable_entry(
     entry_id: int,
     entry_in: TimetableEntryUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+    current_user=Depends(require_roles(["scheduler", "secretariat", "admin", "sysadmin"])),
 ):
     entry = db.query(TimetableEntry).filter(TimetableEntry.id == entry_id).first()
     if not entry:

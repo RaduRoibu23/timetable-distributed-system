@@ -786,48 +786,150 @@ code.inline{
   font-size: 12px;
   color: var(--text);
 }
-/* Login full-screen centered (nu depinde de #root) */
+/* Login full-screen centered */
 .loginPage{
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
-
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-
   padding: 24px;
   box-sizing: border-box;
-
   z-index: 9999;
 }
 
-/* Card mic, centrat */
+/* Card centrat */
 .loginCard{
   width: 100%;
-  max-width: 520px;      /* fă-l 460/480 dacă vrei mai mic */
+  max-width: 340px;
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.04);
   border-radius: 18px;
-  padding: 18px;
-
-  /* redundanță utilă: dacă părintele nu e flex, tot se centrează */
-  margin: 0 auto;
+  padding: 28px 24px;
+  text-align: center;
 }
 
-/* Input-urile rămân la lățimea cardului */
-.loginCard .input,
-.loginCard .select{
+.loginCard .title {
+  font-size: 1.6rem;
+  margin-bottom: 4px;
+}
+
+.loginCard .subtitle {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+.loginCard .field {
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.loginCard .input {
   width: 100%;
   box-sizing: border-box;
 }
 
-/* Butoanele să nu împingă cardul */
-.loginCard .row-wrap{
+.loginMainBtn {
+  width: 100%;
+  margin: 8px 0 16px 0;
+}
+
+.quickLoginGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.btnSmall {
+  font-size: 0.75rem;
+  padding: 6px 8px;
+}
+
+.loginFooter {
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  font-size: 0.65rem;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+/* Notification Pop-ups */
+.notificationContainer {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10px;
+  max-width: 380px;
+}
+
+.notificationPopup {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(46, 229, 157, 0.15);
+  border: 1px solid rgba(46, 229, 157, 0.5);
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.notificationContent {
+  flex: 1;
+}
+
+.notificationMessage {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.notificationTime {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.notificationClose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s, color 0.2s;
+}
+
+.notificationClose:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
 }
 
 
