@@ -22,10 +22,22 @@ from app.models import (
     Curriculum,
     TeacherAvailability,
     RoomAvailability,
+    SubjectTeacher,
 )
 from app.services.timetable_generator import generate_timetable_for_class
 from app.services import notifications as notifications_service
 
+# Constants for error messages
+WEEKDAY_NAMES = {0: "Luni", 1: "Marți", 2: "Miercuri", 3: "Joi", 4: "Vineri"}
+TIME_LABELS = {
+    1: "13:00–14:00",
+    2: "14:00–15:00",
+    3: "15:00–16:00",
+    4: "16:00–17:00",
+    5: "17:00–18:00",
+    6: "18:00–19:00",
+    7: "19:00–20:00",
+}
 
 router = APIRouter(prefix="/timetables", tags=["timetables"])
 
@@ -48,6 +60,7 @@ class TimetableEntryRead(BaseModel):
     subject_name: str | None = None
     weekday: int | None = None
     index_in_day: int | None = None
+    teacher_name: str | None = None  # Teacher name(s) for this subject/class
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -133,6 +146,37 @@ def get_timetable_for_class(
     return [_to_read_model(db, e) for e in entries]
 
 
+@router.delete("/classes/{class_id}")
+def delete_timetable_for_class(
+    class_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["scheduler", "secretariat", "admin", "sysadmin"])),
+):
+    """Delete all timetable entries for a class."""
+    # Verify class exists
+    school_class = db.query(SchoolClass).filter(SchoolClass.id == class_id).first()
+    if not school_class:
+        raise HTTPException(status_code=404, detail="Class not found")
+    
+    # Delete all entries for this class
+    deleted_count = db.query(TimetableEntry).filter(TimetableEntry.class_id == class_id).delete()
+    
+    # Log audit entry
+    from app.services import audit as audit_service
+    username = current_user.get("preferred_username", "unknown")
+    audit_service.log_action(
+        db,
+        username=username,
+        action="timetable_deleted",
+        resource_type="timetable",
+        resource_id=class_id,
+        details=f"Deleted {deleted_count} timetable entries for class {school_class.name}",
+    )
+    
+    db.commit()
+    return {"detail": f"Deleted {deleted_count} timetable entries for class {school_class.name}"}
+
+
 @router.get("/me", response_model=List[TimetableEntryRead])
 def get_my_timetable(
     class_id: int | None = Query(default=None),
@@ -168,6 +212,61 @@ def get_my_timetable(
     return [_to_read_model(db, e) for e in entries]
 
 
+@router.get("/me/teacher", response_model=List[TimetableEntryRead])
+def get_my_teacher_timetable(
+    db: Session = Depends(get_db),
+    payload: dict = Depends(verify_token),
+):
+    """Get timetable for current teacher - only shows classes they teach, no empty slots."""
+    username = payload.get("preferred_username")
+    if not username:
+        raise HTTPException(status_code=400, detail="Username not found in token")
+    
+    # Get teacher profile
+    profile = db.query(UserProfile).filter(UserProfile.username == username).first()
+    if not profile or not profile.teacher_id:
+        raise HTTPException(status_code=400, detail="User is not a teacher")
+    
+    teacher_id = profile.teacher_id
+    
+    # Find all curricula where this teacher is assigned via SubjectTeacher
+    subject_teachers = db.query(SubjectTeacher).filter(
+        SubjectTeacher.teacher_id == teacher_id
+    ).all()
+    
+    curriculum_ids = [st.curriculum_id for st in subject_teachers]
+    
+    # Also check legacy teacher_id in Curriculum
+    legacy_curricula = db.query(Curriculum).filter(
+        Curriculum.teacher_id == teacher_id
+    ).all()
+    legacy_curriculum_ids = [c.id for c in legacy_curricula]
+    
+    # Combine both
+    all_curriculum_ids = list(set(curriculum_ids + legacy_curriculum_ids))
+    
+    if not all_curriculum_ids:
+        return []  # Teacher has no assigned classes
+    
+    # Get curricula
+    curricula = db.query(Curriculum).filter(Curriculum.id.in_(all_curriculum_ids)).all()
+    
+    # Build list of (class_id, subject_id) pairs
+    class_subject_pairs = [(c.class_id, c.subject_id) for c in curricula]
+    
+    # Get timetable entries for these class/subject combinations
+    entries = []
+    for class_id, subject_id in class_subject_pairs:
+        class_entries = db.query(TimetableEntry).filter(
+            TimetableEntry.class_id == class_id,
+            TimetableEntry.subject_id == subject_id,
+        ).all()
+        entries.extend(class_entries)
+    
+    # Return only actual entries (no empty slots)
+    return [_to_read_model(db, e) for e in entries]
+
+
 @router.patch("/entries/{entry_id}", response_model=TimetableEntryRead)
 def update_timetable_entry(
     entry_id: int,
@@ -177,14 +276,115 @@ def update_timetable_entry(
 ):
     entry = db.query(TimetableEntry).filter(TimetableEntry.id == entry_id).first()
     if not entry:
-        raise HTTPException(status_code=404, detail="Timetable entry not found")
+        raise HTTPException(
+            status_code=404, 
+            detail="Timetable entry not found. It may have been deleted by another user."
+        )
 
     # Optimistic locking: check version
     if entry.version != entry_in.version:
         raise HTTPException(
             status_code=409,
-            detail=f"Version mismatch. Expected {entry.version}, got {entry_in.version}. Entry may have been modified by another user."
+            detail=f"Version mismatch. Expected {entry.version}, got {entry_in.version}. Entry may have been modified or deleted by another user."
         )
+
+    # Teacher conflict validation - check BEFORE applying any changes
+    # This ensures we catch conflicts regardless of what field is being changed
+    from app.models import Curriculum, TeacherAvailability, TimeSlot, SubjectTeacher
+    timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
+    if timeslot:
+        # Determine which subject to check (new subject if changed, otherwise current)
+        subject_id_to_check = entry_in.subject_id if entry_in.subject_id is not None else entry.subject_id
+        
+        # Find teacher for this subject+class combination
+        curriculum = (
+            db.query(Curriculum)
+            .filter(
+                Curriculum.subject_id == subject_id_to_check,
+                Curriculum.class_id == entry.class_id,
+            )
+            .first()
+        )
+        
+        if curriculum:
+            # Get all teacher IDs for this curriculum (from SubjectTeacher and legacy teacher_id)
+            teacher_ids = []
+            
+            # Check SubjectTeacher table
+            subject_teachers = db.query(SubjectTeacher).filter(
+                SubjectTeacher.curriculum_id == curriculum.id
+            ).all()
+            for st in subject_teachers:
+                teacher_ids.append(st.teacher_id)
+            
+            # Also check legacy teacher_id in Curriculum
+            if curriculum.teacher_id and curriculum.teacher_id not in teacher_ids:
+                teacher_ids.append(curriculum.teacher_id)
+            
+            # Check for conflicts for each teacher
+            for teacher_id in teacher_ids:
+                # Check teacher availability
+                teacher_avail = (
+                    db.query(TeacherAvailability)
+                    .filter(
+                        TeacherAvailability.teacher_id == teacher_id,
+                        TeacherAvailability.weekday == timeslot.weekday,
+                        TeacherAvailability.index_in_day == timeslot.index_in_day,
+                    )
+                    .first()
+                )
+                if teacher_avail and not teacher_avail.available:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Teacher is not available at this time slot (weekday {timeslot.weekday}, hour {timeslot.index_in_day})"
+                    )
+                
+                # Check teacher overlap: find other entries with same teacher and same timeslot
+                # Method 1: Check via Curriculum.teacher_id (legacy)
+                other_entries_via_curriculum = (
+                    db.query(TimetableEntry)
+                    .join(Curriculum, TimetableEntry.subject_id == Curriculum.subject_id)
+                    .filter(
+                        Curriculum.teacher_id == teacher_id,
+                        TimetableEntry.timeslot_id == entry.timeslot_id,
+                        TimetableEntry.id != entry_id,
+                    )
+                    .all()
+                )
+                
+                # Method 2: Check via SubjectTeacher
+                other_entries_via_subject_teacher = (
+                    db.query(TimetableEntry)
+                    .join(Curriculum, TimetableEntry.subject_id == Curriculum.subject_id)
+                    .join(SubjectTeacher, SubjectTeacher.curriculum_id == Curriculum.id)
+                    .filter(
+                        SubjectTeacher.teacher_id == teacher_id,
+                        TimetableEntry.timeslot_id == entry.timeslot_id,
+                        TimetableEntry.id != entry_id,
+                    )
+                    .all()
+                )
+                
+                # Combine and deduplicate
+                all_conflicting_entries = list(set(other_entries_via_curriculum + other_entries_via_subject_teacher))
+                
+                # Filter out the current entry being edited (it's not a conflict if it's the same entry)
+                all_conflicting_entries = [e for e in all_conflicting_entries if e.id != entry_id]
+                
+                if all_conflicting_entries:
+                    conflict_details = []
+                    for other_entry in all_conflicting_entries:
+                        other_class = db.query(SchoolClass).filter(SchoolClass.id == other_entry.class_id).first()
+                        other_subj = db.query(Subject).filter(Subject.id == other_entry.subject_id).first()
+                        class_name = other_class.name if other_class else f"Clasa {other_entry.class_id}"
+                        subject_name = other_subj.name if other_subj else f"Materia {other_entry.subject_id}"
+                        conflict_details.append(f"{subject_name} la {class_name}")
+                    
+                    timeslot_name = f"{WEEKDAY_NAMES.get(timeslot.weekday, f'Ziua {timeslot.weekday}')}, {TIME_LABELS.get(timeslot.index_in_day, f'Ora {timeslot.index_in_day}')}"
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Profesorul are deja o oră programată la acest interval ({timeslot_name}): {', '.join(conflict_details)}. Vă rugăm să alegeți alt interval sau alt profesor."
+                    )
 
     if entry_in.subject_id is not None:
         # Verify subject exists
@@ -251,63 +451,6 @@ def update_timetable_entry(
                 )
             
             entry.room_id = entry_in.room_id
-
-    # Advanced validation: Check teacher overlap (if subject_id changed)
-    if entry_in.subject_id is not None and entry_in.subject_id != entry.subject_id:
-        from app.models import Curriculum, TeacherAvailability, TimeSlot
-        # Find teacher for this subject+class combination
-        curriculum = (
-            db.query(Curriculum)
-            .filter(
-                Curriculum.subject_id == entry_in.subject_id,
-                Curriculum.class_id == entry.class_id,
-            )
-            .first()
-        )
-        
-        if curriculum and curriculum.teacher_id:
-            timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
-            if timeslot:
-                # Check teacher availability
-                teacher_avail = (
-                    db.query(TeacherAvailability)
-                    .filter(
-                        TeacherAvailability.teacher_id == curriculum.teacher_id,
-                        TeacherAvailability.weekday == timeslot.weekday,
-                        TeacherAvailability.index_in_day == timeslot.index_in_day,
-                    )
-                    .first()
-                )
-                if teacher_avail and not teacher_avail.available:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Teacher is not available at this time slot (weekday {timeslot.weekday}, hour {timeslot.index_in_day})"
-                    )
-                
-                # Check teacher overlap (same teacher, same timeslot, different class/subject)
-                other_entries = (
-                    db.query(TimetableEntry)
-                    .join(Curriculum, TimetableEntry.subject_id == Curriculum.subject_id)
-                    .filter(
-                        Curriculum.teacher_id == curriculum.teacher_id,
-                        TimetableEntry.timeslot_id == entry.timeslot_id,
-                        TimetableEntry.id != entry_id,
-                    )
-                    .all()
-                )
-                if other_entries:
-                    conflict_details = []
-                    for other_entry in other_entries:
-                        other_class = db.query(SchoolClass).filter(SchoolClass.id == other_entry.class_id).first()
-                        other_subj = db.query(Subject).filter(Subject.id == other_entry.subject_id).first()
-                        conflict_details.append(
-                            f"class {other_class.name if other_class else other_entry.class_id}, "
-                            f"subject {other_subj.name if other_subj else other_entry.subject_id}"
-                        )
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Teacher already has a lesson at this time slot: {', '.join(conflict_details)}"
-                    )
 
     # Increment version for optimistic locking
     entry.version += 1
@@ -450,10 +593,128 @@ def get_timetable_stats(
     }
 
 
+# Cache for teacher names to avoid repeated Keycloak calls
+_teacher_name_cache = {}
+_admin_token_cache = {"token": None, "expires_at": 0}
+
+def _get_teacher_display_name(db: Session, teacher_profile: UserProfile) -> str:
+    """Get teacher's display name from Keycloak or fallback to username."""
+    # Check cache first
+    if teacher_profile.username in _teacher_name_cache:
+        return _teacher_name_cache[teacher_profile.username]
+    
+    from app.core.config import settings
+    import requests
+    import time
+    import re
+    
+    # Try to get name from Keycloak (with caching)
+    admin_token = _admin_token_cache.get("token")
+    current_time = time.time()
+    
+    # Refresh token if expired (cache for 5 minutes)
+    if not admin_token or current_time > _admin_token_cache.get("expires_at", 0):
+        try:
+            url = f"{settings.KEYCLOAK_ADMIN_URL}/realms/master/protocol/openid-connect/token"
+            data = {
+                "grant_type": "password",
+                "client_id": "admin-cli",
+                "username": settings.KEYCLOAK_ADMIN_USER,
+                "password": settings.KEYCLOAK_ADMIN_PASSWORD,
+            }
+            resp = requests.post(url, data=data, timeout=3)
+            if resp.status_code == 200:
+                admin_token = resp.json().get("access_token")
+                _admin_token_cache["token"] = admin_token
+                _admin_token_cache["expires_at"] = current_time + 300  # 5 minutes
+        except Exception:
+            pass
+    
+    if admin_token:
+        try:
+            url = f"{settings.KEYCLOAK_ADMIN_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
+            headers = {"Authorization": f"Bearer {admin_token}"}
+            params = {"username": teacher_profile.username, "exact": "true"}
+            resp = requests.get(url, headers=headers, params=params, timeout=3)
+            if resp.status_code == 200:
+                users = resp.json()
+                if users and len(users) > 0:
+                    kc_user = users[0]
+                    first_name = kc_user.get("firstName") or kc_user.get("first_name")
+                    last_name = kc_user.get("lastName") or kc_user.get("last_name")
+                    if first_name and last_name:
+                        # Clean up name: remove username and professorXX patterns
+                        display_name = f"{first_name} {last_name}".strip()
+                        # Remove username pattern if present (e.g., ", professor13" or "professor13")
+                        if teacher_profile.username in display_name:
+                            display_name = display_name.replace(teacher_profile.username, "").strip()
+                        # Remove any "professor" + number pattern (e.g., "professor13", "professor11")
+                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip()
+                        # Remove trailing comma and whitespace
+                        display_name = display_name.rstrip(",").strip()
+                        _teacher_name_cache[teacher_profile.username] = display_name
+                        return display_name
+                    elif first_name:
+                        display_name = first_name.strip()
+                        if teacher_profile.username in display_name:
+                            display_name = display_name.replace(teacher_profile.username, "").strip()
+                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                        _teacher_name_cache[teacher_profile.username] = display_name
+                        return display_name
+                    elif last_name:
+                        display_name = last_name.strip()
+                        if teacher_profile.username in display_name:
+                            display_name = display_name.replace(teacher_profile.username, "").strip()
+                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                        _teacher_name_cache[teacher_profile.username] = display_name
+                        return display_name
+        except Exception:
+            pass
+    
+    # Fallback to username
+    display_name = teacher_profile.username
+    _teacher_name_cache[teacher_profile.username] = display_name
+    return display_name
+
+
 def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
     cls = db.query(SchoolClass).filter(SchoolClass.id == entry.class_id).first()
     subj = db.query(Subject).filter(Subject.id == entry.subject_id).first()
     ts = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
+    
+    # Get teacher name(s) from Curriculum -> SubjectTeacher or legacy teacher_id
+    teacher_name = None
+    curriculum = db.query(Curriculum).filter(
+        Curriculum.class_id == entry.class_id,
+        Curriculum.subject_id == entry.subject_id,
+    ).first()
+    if curriculum:
+        teacher_names = []
+        
+        # Check SubjectTeacher table (new way)
+        subject_teachers = db.query(SubjectTeacher).filter(
+            SubjectTeacher.curriculum_id == curriculum.id
+        ).all()
+        for st in subject_teachers:
+            teacher_profile = db.query(UserProfile).filter(
+                UserProfile.teacher_id == st.teacher_id
+            ).first()
+            if teacher_profile:
+                display_name = _get_teacher_display_name(db, teacher_profile)
+                teacher_names.append(display_name)
+        
+        # Also check legacy teacher_id in Curriculum
+        if curriculum.teacher_id:
+            teacher_profile = db.query(UserProfile).filter(
+                UserProfile.teacher_id == curriculum.teacher_id
+            ).first()
+            if teacher_profile:
+                display_name = _get_teacher_display_name(db, teacher_profile)
+                if display_name not in teacher_names:
+                    teacher_names.append(display_name)
+        
+        if teacher_names:
+            teacher_name = ", ".join(teacher_names)  # Join multiple teachers with comma
 
     return TimetableEntryRead(
         id=entry.id,
@@ -466,5 +727,6 @@ def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
         subject_name=getattr(subj, "name", None),
         weekday=getattr(ts, "weekday", None),
         index_in_day=getattr(ts, "index_in_day", None),
+        teacher_name=teacher_name,
     )
 

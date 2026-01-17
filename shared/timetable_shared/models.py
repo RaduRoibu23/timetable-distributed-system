@@ -79,6 +79,7 @@ class Curriculum(Base):
     """
     Weekly curriculum: how many hours per week a class has for a given subject.
     Optionally includes teacher_id for the teacher assigned to teach this subject to this class.
+    Supports 1-2 teachers via SubjectTeacher junction table.
     """
 
     __tablename__ = "curricula"
@@ -87,7 +88,7 @@ class Curriculum(Base):
     class_id = Column(Integer, ForeignKey("school_classes.id"), nullable=False)
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
     hours_per_week = Column(SmallInteger, nullable=False)
-    teacher_id = Column(Integer, nullable=True)  # References UserProfile.teacher_id
+    teacher_id = Column(Integer, nullable=True)  # References UserProfile.teacher_id (legacy, kept for backward compatibility)
 
     __table_args__ = (
         UniqueConstraint("class_id", "subject_id", name="uq_curriculum_class_subject"),
@@ -95,6 +96,26 @@ class Curriculum(Base):
 
     school_class = relationship("SchoolClass", back_populates="curricula")
     subject = relationship("Subject", back_populates="curricula")
+    subject_teachers = relationship("SubjectTeacher", back_populates="curriculum", cascade="all, delete-orphan")
+
+
+class SubjectTeacher(Base):
+    """
+    Junction table for many-to-many relationship between Curriculum and Teachers.
+    Allows 1-2 teachers per subject/class combination.
+    """
+
+    __tablename__ = "subject_teachers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    curriculum_id = Column(Integer, ForeignKey("curricula.id"), nullable=False)
+    teacher_id = Column(Integer, nullable=False)  # References UserProfile.teacher_id
+
+    __table_args__ = (
+        UniqueConstraint("curriculum_id", "teacher_id", name="uq_subject_teacher_curriculum_teacher"),
+    )
+
+    curriculum = relationship("Curriculum", back_populates="subject_teachers")
 
 
 class TimetableEntry(Base):

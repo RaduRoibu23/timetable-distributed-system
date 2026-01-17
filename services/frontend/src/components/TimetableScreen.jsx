@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPatch } from "../services/apiService";
+import { apiGet, apiPatch, apiDelete } from "../services/apiService";
 
 const WEEKDAY = ["Luni", "Marți", "Miercuri", "Joi", "Vineri"];
 const TIME_LABELS = {
@@ -98,6 +98,23 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
   }
 
   async function loadMyTimetable() {
+    // If user is a professor, use teacher endpoint (no empty slots)
+    if (roles.includes("professor")) {
+      try {
+        const data = await apiGet("/timetables/me/teacher", accessToken);
+        setEntries(Array.isArray(data) ? data : []);
+        setOriginal(JSON.parse(JSON.stringify(Array.isArray(data) ? data : [])));
+        setLastSig(signature(Array.isArray(data) ? data : []));
+      } catch (e) {
+        setBanner({ type: "error", text: String(e?.message || e) });
+        setEntries([]);
+        setOriginal([]);
+        setLastSig("");
+      }
+      return;
+    }
+    
+    // For students, use regular /me endpoint
     const me = await apiGet("/me", accessToken);
     const classId = me?.class_id ?? me?.classId ?? me?.class?.id;
 
@@ -350,6 +367,29 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
               </button>
             </>
           )}
+          {editingAllowed && !isEditing && mode === "class" && selectedClassId && (
+            <button
+              className="btn danger"
+              onClick={async () => {
+                const confirmed = window.confirm(`Esti sigur ca vrei sa stergi orarul pentru ${selectedClassName || `clasa ${selectedClassId}`}?`);
+                if (!confirmed) return;
+                setLoading(true);
+                setBanner(null);
+                try {
+                  await apiDelete(`/timetables/classes/${selectedClassId}`, accessToken);
+                  setBanner({ type: "ok", text: "Orar sters cu succes." });
+                  await loadTimetableForClass(selectedClassId);
+                } catch (e) {
+                  setBanner({ type: "error", text: String(e?.message || e) });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading || entries.length === 0}
+            >
+              Delete Timetable
+            </button>
+          )}
         </div>
       </div>
 
@@ -371,6 +411,37 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
         <div className="mutedBlock">Loading...</div>
       ) : entries.length === 0 ? (
         <div className="mutedBlock">Nu există intrări de orar.</div>
+      ) : mode === "my" && roles.includes("professor") ? (
+        // Teacher view: compact list without empty slots
+        <div className="tableWrap">
+          <table className="dataTable">
+            <thead>
+              <tr>
+                <th>Zi</th>
+                <th>Ora</th>
+                <th>Materie</th>
+                <th>Clasa</th>
+                <th>Sala</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries
+                .sort((a, b) => {
+                  if (a.weekday !== b.weekday) return (a.weekday || 0) - (b.weekday || 0);
+                  return (a.index_in_day || 0) - (b.index_in_day || 0);
+                })
+                .map((e) => (
+                  <tr key={e.id}>
+                    <td>{WEEKDAY[e.weekday || 0] || "—"}</td>
+                    <td>{TIME_LABELS[e.index_in_day || 0] || `Slot ${e.index_in_day}`}</td>
+                    <td>{e.subject_name || `#${e.subject_id}`}</td>
+                    <td>{e.class_name || `Clasa ${e.class_id}`}</td>
+                    <td>{e.room_id ? `Sala ${e.room_id}` : "—"}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         (() => {
           const byKey = new Map();
@@ -420,6 +491,9 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                                 <div className="cellTitle">{cell.subject_name ?? `#${cell.subject_id}`}</div>
                                 <div className="cellMeta">
                                   {cell.room_id == null ? "—" : `Sala ${cell.room_id}`}
+                                  {cell.teacher_name && (
+                                    <div className="cellTeacher">{cell.teacher_name}</div>
+                                  )}
                                   <span className="cellVersion">v{cell.version}</span>
                                 </div>
                               </>

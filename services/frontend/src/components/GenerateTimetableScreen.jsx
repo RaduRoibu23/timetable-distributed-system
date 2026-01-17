@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../services/apiService";
+import { apiGet, apiPost, apiDelete } from "../services/apiService";
 
 export default function GenerateTimetableScreen({ accessToken }) {
   const [classes, setClasses] = useState([]);
@@ -21,6 +21,23 @@ export default function GenerateTimetableScreen({ accessToken }) {
     })();
   }, [accessToken]);
 
+  async function deleteTimetable() {
+    if (!classId) return;
+    const confirmed = window.confirm(`Esti sigur ca vrei sa stergi orarul pentru clasa selectata?`);
+    if (!confirmed) return;
+    
+    setLoading(true);
+    setBanner(null);
+    try {
+      await apiDelete(`/timetables/classes/${classId}`, accessToken);
+      setBanner({ type: "ok", text: "Orar sters cu succes." });
+    } catch (e) {
+      setBanner({ type: "error", text: String(e.message || e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function generate() {
     if (!classId) return;
     setLoading(true);
@@ -30,6 +47,28 @@ export default function GenerateTimetableScreen({ accessToken }) {
       const ids = resp?.job_ids ?? resp?.jobIds ?? [];
       setJobIds(Array.isArray(ids) ? ids : []);
       setBanner({ type: "ok", text: "Job de generare creat." });
+    } catch (e) {
+      setBanner({ type: "error", text: String(e.message || e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteAndRegenerate() {
+    if (!classId) return;
+    const confirmed = window.confirm(`Esti sigur ca vrei sa stergi si sa regenerezi orarul pentru clasa selectata?`);
+    if (!confirmed) return;
+    
+    setLoading(true);
+    setBanner(null);
+    try {
+      // Delete first
+      await apiDelete(`/timetables/classes/${classId}`, accessToken);
+      // Then generate
+      const resp = await apiPost("/timetables/generate", { class_id: Number(classId) }, accessToken);
+      const ids = resp?.job_ids ?? resp?.jobIds ?? [];
+      setJobIds(Array.isArray(ids) ? ids : []);
+      setBanner({ type: "ok", text: "Orar sters si regenerare in curs." });
     } catch (e) {
       setBanner({ type: "error", text: String(e.message || e) });
     } finally {
@@ -56,6 +95,12 @@ export default function GenerateTimetableScreen({ accessToken }) {
 
           <button className="btn primary" onClick={generate} disabled={loading || !classId}>
             Generate
+          </button>
+          <button className="btn" onClick={deleteTimetable} disabled={loading || !classId}>
+            Delete
+          </button>
+          <button className="btn" onClick={deleteAndRegenerate} disabled={loading || !classId}>
+            Delete & Regenerate
           </button>
         </div>
       </div>

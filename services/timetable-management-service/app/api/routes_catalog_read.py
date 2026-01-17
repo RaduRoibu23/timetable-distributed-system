@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.rbac import require_roles
 from app.core.security import verify_token
 from app.db import get_db
-from app.models import SchoolClass, Subject, TimeSlot, Curriculum, UserProfile
+from app.models import SchoolClass, Subject, TimeSlot, Curriculum, UserProfile, SubjectTeacher
 
 
 router = APIRouter(
@@ -56,12 +56,17 @@ class SubjectUpdate(BaseModel):
 
 # ========= Curricula =========
 
+class TeacherInfo(BaseModel):
+    teacher_id: int
+    teacher_username: str | None = None
+
 class CurriculumRead(BaseModel):
     id: int
     class_id: int
     subject_id: int
     hours_per_week: int
-    teacher_id: int | None = None
+    teacher_id: int | None = None  # Legacy, kept for backward compatibility
+    teachers: List[TeacherInfo] = []  # List of 1-2 teachers via SubjectTeacher
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,12 +75,14 @@ class CurriculumCreate(BaseModel):
     class_id: int
     subject_id: int
     hours_per_week: int = Field(..., ge=1, le=10)
-    teacher_id: int | None = None
+    teacher_id: int | None = None  # Legacy
+    teacher_ids: List[int] = Field(default_factory=list, max_length=2)  # Max 2 teachers
 
 
 class CurriculumUpdate(BaseModel):
     hours_per_week: int | None = Field(None, ge=1, le=10)
-    teacher_id: int | None = None
+    teacher_id: int | None = None  # Legacy
+    teacher_ids: List[int] | None = Field(None, max_length=2)  # Max 2 teachers
 
 
 # ========= TimeSlots (read-only) =========
@@ -235,6 +242,25 @@ def delete_subject(
 
 # ========= Curricula CRUD =========
 
+def _curriculum_to_read_model(curriculum: Curriculum, db: Session) -> CurriculumRead:
+    """Convert Curriculum to CurriculumRead with teachers list."""
+    teachers = []
+    for st in curriculum.subject_teachers:
+        teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == st.teacher_id).first()
+        teachers.append(TeacherInfo(
+            teacher_id=st.teacher_id,
+            teacher_username=teacher_profile.username if teacher_profile else None,
+        ))
+    return CurriculumRead(
+        id=curriculum.id,
+        class_id=curriculum.class_id,
+        subject_id=curriculum.subject_id,
+        hours_per_week=curriculum.hours_per_week,
+        teacher_id=curriculum.teacher_id,
+        teachers=teachers,
+    )
+
+
 @router.get("/curricula", response_model=List[CurriculumRead])
 def list_curricula(
     class_id: int | None = None,
@@ -244,7 +270,8 @@ def list_curricula(
     query = db.query(Curriculum)
     if class_id is not None:
         query = query.filter(Curriculum.class_id == class_id)
-    return query.all()
+    curricula = query.all()
+    return [_curriculum_to_read_model(c, db) for c in curricula]
 
 
 @router.post("/curricula", response_model=CurriculumRead)
@@ -262,23 +289,37 @@ def create_curriculum(
     if not subject_exists:
         raise HTTPException(status_code=400, detail="Subject not found")
 
-    # Verify teacher exists if provided
-    if curriculum_in.teacher_id is not None:
-        teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == curriculum_in.teacher_id).first()
+    # Validate teachers (max 2)
+    teacher_ids = curriculum_in.teacher_ids or []
+    if curriculum_in.teacher_id is not None and curriculum_in.teacher_id not in teacher_ids:
+        teacher_ids.append(curriculum_in.teacher_id)
+    if len(teacher_ids) > 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 teachers allowed per curriculum")
+    
+    # Verify all teachers exist
+    for tid in teacher_ids:
+        teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == tid).first()
         if not teacher_profile:
-            raise HTTPException(status_code=400, detail="Teacher not found")
+            raise HTTPException(status_code=400, detail=f"Teacher with id {tid} not found")
 
     curriculum = Curriculum(
         class_id=curriculum_in.class_id,
         subject_id=curriculum_in.subject_id,
         hours_per_week=curriculum_in.hours_per_week,
-        teacher_id=curriculum_in.teacher_id,
+        teacher_id=curriculum_in.teacher_id,  # Legacy
     )
     db.add(curriculum)
+    db.flush()  # Get ID
+    
+    # Add teachers via SubjectTeacher
+    for tid in teacher_ids:
+        st = SubjectTeacher(curriculum_id=curriculum.id, teacher_id=tid)
+        db.add(st)
+    
     try:
         db.commit()
         db.refresh(curriculum)
-        return curriculum
+        return _curriculum_to_read_model(curriculum, db)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Curriculum for this class and subject already exists")
@@ -295,10 +336,28 @@ def update_curriculum(
     if not curriculum:
         raise HTTPException(status_code=404, detail="Curriculum not found")
 
-    curriculum.hours_per_week = curriculum_in.hours_per_week
+    if curriculum_in.hours_per_week is not None:
+        curriculum.hours_per_week = curriculum_in.hours_per_week
+    
+    # Update teachers if provided
+    if curriculum_in.teacher_ids is not None:
+        if len(curriculum_in.teacher_ids) > 2:
+            raise HTTPException(status_code=400, detail="Maximum 2 teachers allowed per curriculum")
+        
+        # Remove existing teachers
+        db.query(SubjectTeacher).filter(SubjectTeacher.curriculum_id == curriculum_id).delete()
+        
+        # Verify and add new teachers
+        for tid in curriculum_in.teacher_ids:
+            teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == tid).first()
+            if not teacher_profile:
+                raise HTTPException(status_code=400, detail=f"Teacher with id {tid} not found")
+            st = SubjectTeacher(curriculum_id=curriculum_id, teacher_id=tid)
+            db.add(st)
+    
     db.commit()
     db.refresh(curriculum)
-    return curriculum
+    return _curriculum_to_read_model(curriculum, db)
 
 
 @router.delete("/curricula/{curriculum_id}")
@@ -314,6 +373,64 @@ def delete_curriculum(
     db.delete(curriculum)
     db.commit()
     return {"detail": "Curriculum deleted"}
+
+
+# ========= Curriculum Teachers Management =========
+
+@router.post("/curricula/{curriculum_id}/teachers")
+def add_teacher_to_curriculum(
+    curriculum_id: int,
+    teacher_id: int = Query(..., description="Teacher ID to add"),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+):
+    """Add a teacher to a curriculum. Maximum 2 teachers per curriculum."""
+    curriculum = db.query(Curriculum).filter(Curriculum.id == curriculum_id).first()
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum not found")
+    
+    # Check current teacher count
+    current_count = db.query(SubjectTeacher).filter(SubjectTeacher.curriculum_id == curriculum_id).count()
+    if current_count >= 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 teachers allowed per curriculum")
+    
+    # Check if teacher already assigned
+    existing = db.query(SubjectTeacher).filter(
+        SubjectTeacher.curriculum_id == curriculum_id,
+        SubjectTeacher.teacher_id == teacher_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Teacher already assigned to this curriculum")
+    
+    # Verify teacher exists
+    teacher_profile = db.query(UserProfile).filter(UserProfile.teacher_id == teacher_id).first()
+    if not teacher_profile:
+        raise HTTPException(status_code=400, detail="Teacher not found")
+    
+    st = SubjectTeacher(curriculum_id=curriculum_id, teacher_id=teacher_id)
+    db.add(st)
+    db.commit()
+    return {"detail": "Teacher added to curriculum"}
+
+
+@router.delete("/curricula/{curriculum_id}/teachers/{teacher_id}")
+def remove_teacher_from_curriculum(
+    curriculum_id: int,
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(["secretariat", "admin", "sysadmin"])),
+):
+    """Remove a teacher from a curriculum."""
+    st = db.query(SubjectTeacher).filter(
+        SubjectTeacher.curriculum_id == curriculum_id,
+        SubjectTeacher.teacher_id == teacher_id,
+    ).first()
+    if not st:
+        raise HTTPException(status_code=404, detail="Teacher not assigned to this curriculum")
+    
+    db.delete(st)
+    db.commit()
+    return {"detail": "Teacher removed from curriculum"}
 
 
 # ========= Subject-Teacher Mapping Endpoints =========

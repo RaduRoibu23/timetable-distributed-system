@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import requests
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -7,11 +8,49 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.rbac import require_roles
+from app.core.config import settings
 from app.db import get_db
 from app.models import UserProfile, SchoolClass
 
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
+
+
+def get_keycloak_admin_token() -> str | None:
+    """Get Keycloak admin token for Admin API access."""
+    try:
+        url = f"{settings.KEYCLOAK_ADMIN_URL}/realms/master/protocol/openid-connect/token"
+        data = {
+            "grant_type": "password",
+            "client_id": "admin-cli",
+            "username": settings.KEYCLOAK_ADMIN_USER,
+            "password": settings.KEYCLOAK_ADMIN_PASSWORD,
+        }
+        resp = requests.post(url, data=data, timeout=5)
+        if resp.status_code == 200:
+            return resp.json().get("access_token")
+    except Exception:
+        pass
+    return None
+
+
+def get_keycloak_user_info(username: str, admin_token: str | None) -> dict | None:
+    """Get user info from Keycloak Admin API."""
+    if not admin_token:
+        return None
+    
+    try:
+        url = f"{settings.KEYCLOAK_ADMIN_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        params = {"username": username, "exact": "true"}
+        resp = requests.get(url, headers=headers, params=params, timeout=5)
+        if resp.status_code == 200:
+            users = resp.json()
+            if users and len(users) > 0:
+                return users[0]  # Return first match
+    except Exception:
+        pass
+    return None
 
 
 class ProfileRead(BaseModel):
@@ -42,6 +81,9 @@ def list_profiles(
     
     profiles = query.all()
     
+    # Get Keycloak admin token once for all users
+    admin_token = get_keycloak_admin_token()
+    
     result = []
     for p in profiles:
         class_name = None
@@ -50,11 +92,21 @@ def list_profiles(
             if cls:
                 class_name = cls.name
         
-        # Parse first/last name from username (demo format: student01, professor01, etc.)
-        # In real app, this would come from Keycloak or a separate table
-        parts = p.username.replace("0", " ").replace("1", " ").replace("2", " ").strip().split()
-        first_name = parts[0].capitalize() if parts else p.username
-        last_name = f"Demo{p.id}"
+        # Try to get names from Keycloak
+        first_name = None
+        last_name = None
+        kc_user = get_keycloak_user_info(p.username, admin_token)
+        if kc_user:
+            first_name = kc_user.get("firstName") or kc_user.get("first_name")
+            last_name = kc_user.get("lastName") or kc_user.get("last_name")
+        
+        # Fallback to username parsing if Keycloak unavailable
+        if not first_name or not last_name:
+            parts = p.username.replace("0", " ").replace("1", " ").replace("2", " ").strip().split()
+            if not first_name:
+                first_name = parts[0].capitalize() if parts else p.username
+            if not last_name:
+                last_name = f"Demo{p.id}"
         
         result.append(ProfileRead(
             id=p.id,

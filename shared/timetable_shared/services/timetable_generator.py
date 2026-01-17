@@ -195,8 +195,35 @@ def generate_timetable_for_class(
             # Try to assign a room
             assigned_room = None
             if available_rooms:
-                # Shuffle rooms for variety
-                shuffled_rooms = list(available_rooms)
+                # Check which rooms are already occupied by other classes at this timeslot
+                occupied_room_ids = set()
+                existing_entries = (
+                    db.query(TimetableEntry)
+                    .filter(
+                        TimetableEntry.timeslot_id == ts.id,
+                        TimetableEntry.class_id != class_id,  # Other classes
+                        TimetableEntry.room_id.isnot(None)
+                    )
+                    .all()
+                )
+                for entry in existing_entries:
+                    if entry.room_id:
+                        occupied_room_ids.add(entry.room_id)
+                
+                # Also check rooms assigned in current batch (from assignment dict)
+                for other_ts_id, (_, other_room_id) in assignment.items():
+                    if other_ts_id == ts.id and other_room_id:  # Same timeslot, different entry
+                        occupied_room_ids.add(other_room_id)
+                
+                # Filter out occupied rooms and shuffle for even distribution
+                free_rooms = [r for r in available_rooms if r.id not in occupied_room_ids]
+                
+                # If all rooms are occupied, fall back to all available rooms
+                if not free_rooms:
+                    free_rooms = available_rooms
+                
+                # Shuffle for variety and even distribution
+                shuffled_rooms = list(free_rooms)
                 random.shuffle(shuffled_rooms)
                 
                 for room in shuffled_rooms:
@@ -204,8 +231,12 @@ def generate_timetable_for_class(
                     if not _is_room_available(room.id, day, int(ts.index_in_day)):
                         continue
                     
-                    # Check room overlap
+                    # Check room overlap (local to this assignment attempt)
                     if room.id in used_rooms[int(ts.id)]:
+                        continue
+                    
+                    # Double-check: room should not be occupied by other classes or in current batch
+                    if room.id in occupied_room_ids:
                         continue
                     
                     assigned_room = room.id

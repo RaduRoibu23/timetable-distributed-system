@@ -757,8 +757,14 @@ code.inline{
   color: var(--muted);
   font-size: 12px;
   display:flex;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cellTeacher {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .cellVersion{

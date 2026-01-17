@@ -70,6 +70,12 @@ export default function ProfileScreen({ accessToken, roles }) {
   const className = me?.class_name ?? me?.className ?? me?.class?.name ?? me?.class?.class_name ?? "";
   const classText = className || (classId ? `Clasa ${classId}` : "—");
 
+  // materii predate (pentru profesori)
+  const subjectsTaught = me?.subjects_taught ?? me?.subjectsTaught ?? [];
+  const subjectsText = Array.isArray(subjectsTaught) && subjectsTaught.length > 0
+    ? subjectsTaught.join(", ")
+    : "—";
+
   // extra demo: sub (id), issuer, etc.
   const subject = pickFirst(tokenInfo?.sub, me?.id, me?.user_id);
 
@@ -95,6 +101,10 @@ export default function ProfileScreen({ accessToken, roles }) {
             <div><strong>Email:</strong> {email}</div>
 
             <div><strong>Clasă:</strong> {classText}</div>
+
+            {subjectsTaught.length > 0 && (
+              <div><strong>Materii predate:</strong> {subjectsText}</div>
+            )}
 
             <div>
               <strong>Roluri:</strong>{" "}
