@@ -689,8 +689,7 @@ The system validates:
 
 ### Known Issues
 
-- Edit button error (resolved - validation added)
-- Professor editing (minor UI improvements needed)
+- Minor UI improvements needed for professor editing interface
 
 ## License
 
