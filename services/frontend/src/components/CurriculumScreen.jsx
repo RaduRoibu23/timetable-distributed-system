@@ -19,7 +19,7 @@ export default function CurriculumScreen({ accessToken }) {
         const c = await apiGet("/classes", accessToken);
         const s = await apiGet("/subjects", accessToken);
 
-        // teachers endpoint presupus (foarte probabil există)
+        // Teachers endpoint (likely exists)
         let t = [];
         try { t = await apiGet("/teachers", accessToken); } catch { t = []; }
 

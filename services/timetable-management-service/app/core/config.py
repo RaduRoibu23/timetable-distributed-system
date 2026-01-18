@@ -26,10 +26,10 @@ class Settings:
         "timetable-backend",
     )
 
-    # Issuer-ul așteptat în token
+    # Expected token issuer
     KEYCLOAK_ISSUER: str = KEYCLOAK_PUBLIC_REALM_URL
 
-    # Endpoint-ul de JWKS (cheile publice)
+    # JWKS endpoint (public keys)
     KEYCLOAK_JWKS_URL: str = (
         f"{KEYCLOAK_INTERNAL_REALM_URL}/protocol/openid-connect/certs"
     )

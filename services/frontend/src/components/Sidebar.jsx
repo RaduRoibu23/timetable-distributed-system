@@ -2,13 +2,13 @@ import React from "react";
 
 
 export const NAV_ITEMS = [
-  // Student / Professor: au "orarul meu"
+  // Student / Professor: have "my timetable"
   { id: "my-timetable", label: "Orarul meu", allowedRoles: ["student", "professor"] },
 
-  // Secretariat/Scheduler/Admin/Sysadmin: gestionează orare pe clase
+  // Secretariat/Scheduler/Admin/Sysadmin: manage timetables by class
   { id: "class-timetable", label: "Orar pe clasă", allowedRoles: ["secretariat", "scheduler", "admin", "sysadmin"] },
 
-  // Tooling pentru cei care gestionează orarul
+  // Tools for timetable managers
   { id: "generate", label: "Generează orar", allowedRoles: ["secretariat", "scheduler", "admin", "sysadmin"] },
   { id: "conflicts", label: "Conflicte job", allowedRoles: ["secretariat", "scheduler", "admin", "sysadmin"] },
 

@@ -11,8 +11,8 @@ export const CONFIG = {
     storageKey: 'timetable_auth'
   },
 
-  // Quick login presets (aliniate cu seed_keycloak.sh)
-  // Format: sysadmin (fără număr), admin/professor/secretariat/scheduler (2 cifre), student (2 cifre)
+  // Quick login presets (aligned with seed_keycloak.sh)
+  // Format: sysadmin (no number), admin/professor/secretariat/scheduler (2 digits), student (2 digits)
   demoUsers: [
     { label: 'Sysadmin', username: 'sysadmin', password: 'sysadmin' },
     { label: 'Admin', username: 'admin01', password: 'admin01' },

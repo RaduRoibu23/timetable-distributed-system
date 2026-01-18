@@ -107,13 +107,13 @@ Database constraints:
 ### Automatic Data Seeding
 
 On startup, the system automatically seeds demo data:
-- 5 classes: `IX-A`, `IX-B`, `X-A`, `X-B`, `XI-A`
+- 4 classes: `IX-A`, `IX-B`, `X-A`, `X-B`
 - 35 time slots (Monday-Friday, hours 1-7)
 - 13 subjects (Romanian, Mathematics, Computer Science, Physics, Chemistry, etc.)
 - Complete curriculum (35 hours/week per class)
-- 125 students (25 per class): `student01` to `student125`
+- 80 students (20 per class): `student01` to `student80`
 - 10 professors: `professor01` to `professor10` with sequential `teacher_id`
-- 4 demo rooms with various capacities
+- 7 rooms (6 regular rooms + 1 sports hall) with various capacities
 - UserProfile mappings for all users
 
 ### API Endpoints
@@ -253,8 +253,9 @@ The system performs comprehensive validations:
 - Docker Engine with Swarm support
 - Docker Desktop (on Windows) or Docker Engine on Linux
 - WSL2 (recommended on Windows)
+- Git (to clone repository)
 
-### Setup
+### Deployment Steps
 
 1. **Initialize Docker Swarm** (if not already active):
 ```bash
@@ -273,8 +274,7 @@ This builds:
 
 **Note**: Frontend image (`roiburadu/timetable-frontend:dev`) must be built manually:
 ```bash
-cd services/frontend
-docker build -t roiburadu/timetable-frontend:dev .
+docker build -t roiburadu/timetable-frontend:dev -f services/frontend/Dockerfile services/frontend
 ```
 
 3. **Deploy Stack**:
@@ -282,19 +282,53 @@ docker build -t roiburadu/timetable-frontend:dev .
 docker stack deploy -c docker-stack.yml scd
 ```
 
-4. **Verify Services**:
+4. **Wait for Services to Start**:
 ```bash
 docker stack services scd
 ```
 
-Wait a few seconds until all services reach `1/1` (Running) state.
+Wait until all services reach `1/1` (Running) state. This may take 30-60 seconds for Keycloak to fully initialize.
 
-5. **Access Services**:
-- Keycloak Admin: http://localhost:8181 (admin/admin)
-- Backend API: http://localhost:8000
+5. **Seed Keycloak Users** (optional, if you need demo users):
+```bash
+# Wait for Keycloak to be ready, then:
+bash demos/seed_keycloak.sh
+```
+
+This creates:
+- 80 students (student01-student80)
+- 10 professors (professor01-professor10)
+- 3 admins, 2 secretariat, 3 schedulers, 1 sysadmin
+
+6. **Access Services**:
 - Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
 - API Docs (Swagger): http://localhost:8000/docs
+- Keycloak Admin: http://localhost:8181 (admin/admin)
 - RabbitMQ Management: http://localhost:15672 (admin/admin)
+
+### First Time Setup
+
+After deployment, the system automatically:
+- Creates database tables
+- Seeds demo data (4 classes, 80 students, 10 professors, 7 rooms)
+- Imports Keycloak realm configuration
+
+You only need to run `seed_keycloak.sh` if you want to create Keycloak users (students, professors, admins, etc.).
+
+### Default Credentials
+
+All demo users have password identical to username:
+- `sysadmin` / `sysadmin` (super administrator)
+- `admin01` / `admin01` (administrator)
+- `professor01` / `professor01` (professor)
+- `student01` / `student01` (student)
+- `secretariat01` / `secretariat01` (secretariat)
+- `scheduler01` / `scheduler01` (scheduler)
+
+Keycloak Admin Console:
+- Username: `admin`
+- Password: `admin`
 
 ### Demo Users
 
@@ -302,12 +336,12 @@ All users have password identical to username:
 
 | Username | Role | Description |
 |----------|------|-------------|
-| `student01` - `student125` | student | Students (25 per class, 5 classes) |
+| `student01` - `student80` | student | Students (20 per class, 4 classes) |
 | `professor01` - `professor10` | professor | Professors with teacher_id 1-10 |
 | `secretariat01`, `secretariat02` | secretariat | Secretariat staff |
 | `scheduler01`, `scheduler02`, `scheduler03` | scheduler | Timetable schedulers |
 | `admin01`, `admin02`, `admin03` | admin | Administrators |
-| `sysadmin01` | sysadmin | Super administrator |
+| `sysadmin` | sysadmin | Super administrator |
 
 ## Testing
 
@@ -520,6 +554,16 @@ docker build -t roiburadu/timetable-frontend:dev .
 
 ### Rebuild Services (after code changes)
 
+1. **Rebuild Images**:
+```bash
+# Backend services
+bash build-images.sh
+
+# Frontend (if changed)
+docker build -t roiburadu/timetable-frontend:dev -f services/frontend/Dockerfile services/frontend
+```
+
+2. **Update Services**:
 ```bash
 # Backend
 docker service update --force scd_timetable_backend
@@ -533,6 +577,8 @@ docker service update --force scd_scheduling_engine
 # Notifications Service
 docker service update --force scd_notifications_service
 ```
+
+**Note**: Services will automatically restart with new images. No data loss occurs as data is persisted in PostgreSQL volumes.
 
 ### View Logs
 
@@ -558,6 +604,11 @@ docker stack ps scd
 ```bash
 docker stack rm scd
 ```
+
+**Note**: This stops all services but does NOT delete data. PostgreSQL data is persisted in Docker volumes. To completely reset:
+1. Stop stack: `docker stack rm scd`
+2. Remove volumes: `docker volume rm scd_postgres_data`
+3. Redeploy: `docker stack deploy -c docker-stack.yml scd`
 
 ## Service Replication and Scaling
 
@@ -615,7 +666,7 @@ The system validates:
 
 - [x] Complete RBAC on all endpoints
 - [x] Complete data model for timetables
-- [x] Automatic seeding for demo data (5 classes, 125 students, 10 professors)
+- [x] Automatic seeding for demo data (4 classes, 80 students, 10 professors, 7 rooms)
 - [x] Enhanced timetable generator (considers availability, preferences, conflicts)
 - [x] Complete catalog endpoints (read + CRUD)
 - [x] Endpoint `/timetables/me` with restriction for students
@@ -633,7 +684,13 @@ The system validates:
 - [x] **Optimistic Locking** - Version-based concurrency control
 - [x] **Advanced Validations** - Comprehensive overlap and capacity checks
 - [x] **Timetable Statistics** - Statistics endpoint for reporting
-- [x] Automated tests in `demos/` for all functionalities
+- [x] **Keycloak Integration** - User name display from Keycloak, proper authentication flow
+- [x] **Frontend Improvements** - Room selection dropdown, edit validation, error handling
+
+### Known Issues
+
+- Edit button error (resolved - validation added)
+- Professor editing (minor UI improvements needed)
 
 ## License
 

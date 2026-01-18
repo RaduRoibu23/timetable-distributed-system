@@ -29,7 +29,7 @@ export default function Login({ onLogin }) {
   const demoUsers = CONFIG.demoUsers || [];
 
   const loginPreset = async (u) => {
-    // ca să vezi în UI cu ce user ești logat
+    // Set username/password in UI to show logged in user
     setUsername(u.username);
     setPassword(u.password);
     await doLogin(u.username, u.password);

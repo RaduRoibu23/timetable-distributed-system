@@ -12,7 +12,7 @@ const TIME_LABELS = {
   7: "19:00–20:00",
 };
 
-const POLL_MS = 8000; // pentru demo (student vede actualizări la ~8s)
+const POLL_MS = 8000;
 
 function canEdit(roles) {
   const allowed = ["secretariat", "scheduler", "admin", "sysadmin"];
@@ -51,6 +51,13 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     return m;
   }, [subjects]);
 
+  const [rooms, setRooms] = useState([]);
+  const roomsById = useMemo(() => {
+    const m = new Map();
+    rooms.forEach((r) => m.set(r.id, r));
+    return m;
+  }, [rooms]);
+
   const [entries, setEntries] = useState([]);
   const [original, setOriginal] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -81,6 +88,16 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     setSubjects(Array.isArray(s) ? s : []);
   }
 
+  async function loadRooms() {
+    try {
+      const r = await apiGet("/rooms", accessToken);
+      setRooms(Array.isArray(r) ? r : []);
+    } catch (e) {
+      console.warn("Failed to load rooms:", e);
+      setRooms([]);
+    }
+  }
+
   async function loadClasses() {
     const c = await apiGet("/classes", accessToken);
     const list = Array.isArray(c) ? c : [];
@@ -91,10 +108,12 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
   async function loadTimetableForClass(classId) {
     const data = await apiGet(`/timetables/classes/${classId}`, accessToken);
     const list = Array.isArray(data) ? data : [];
-    list.sort((a, b) => (a.weekday - b.weekday) || (a.index_in_day - b.index_in_day));
-    setEntries(list);
-    setOriginal(JSON.parse(JSON.stringify(list)));
-    setLastSig(signature(list));
+    // Filtrează entry-urile invalide (fără id valid)
+    const validList = list.filter(e => e && e.id && typeof e.id === 'number' && e.id > 0);
+    validList.sort((a, b) => (a.weekday - b.weekday) || (a.index_in_day - b.index_in_day));
+    setEntries(validList);
+    setOriginal(JSON.parse(JSON.stringify(validList)));
+    setLastSig(signature(validList));
   }
 
   async function loadMyTimetable() {
@@ -102,10 +121,20 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     if (roles.includes("professor")) {
       try {
         const data = await apiGet("/timetables/me/teacher", accessToken);
-        setEntries(Array.isArray(data) ? data : []);
-        setOriginal(JSON.parse(JSON.stringify(Array.isArray(data) ? data : [])));
-        setLastSig(signature(Array.isArray(data) ? data : []));
+        const list = Array.isArray(data) ? data : [];
+        // Filter invalid entries (missing valid id)
+        const validList = list.filter(e => e && e.id && typeof e.id === 'number' && e.id > 0);
+        setEntries(validList);
+        setOriginal(JSON.parse(JSON.stringify(validList)));
+        setLastSig(signature(validList));
       } catch (e) {
+        // Don't show error if professor has no assigned classes (normal case)
+        if (e?.status === 400 && e?.message?.includes("not a teacher")) {
+          setEntries([]);
+          setOriginal([]);
+          setLastSig("");
+          return;
+        }
         setBanner({ type: "error", text: String(e?.message || e) });
         setEntries([]);
         setOriginal([]);
@@ -137,6 +166,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     setBanner(null);
     try {
       await loadSubjects();
+      await loadRooms();
       if (mode === "class") await loadClasses();
     } catch (e) {
       setBanner({ type: "error", text: String(e.message || e) });
@@ -166,7 +196,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, selectedClassId]);
 
-  // Polling pentru student/profesor: dacă se schimbă orarul în backend -> notificare + refresh local
+  // Polling for students/professors: if timetable changes in backend -> notification + local refresh
   useEffect(() => {
     if (mode !== "my") return;
     if (isEditing) return;
@@ -205,7 +235,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     const changed = [];
 
     for (const e of entries) {
-      // Validare: entry trebuie sa aiba id valid si version
+      // Validate: entry must have valid id and version
       if (!e.id || typeof e.id !== 'number' || e.id <= 0) {
         console.warn('Entry fara id valid:', e);
         continue;
@@ -235,6 +265,16 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
   }
 
   function beginEdit() {
+    // Validate: check if valid entries exist before allowing edit
+    const invalidEntries = entries.filter(e => !e.id || typeof e.id !== 'number' || e.id <= 0);
+    if (invalidEntries.length > 0) {
+      setBanner({
+        type: "error",
+        text: `Cannot edit: ${invalidEntries.length} invalid entries (missing ID). Please refresh the page.`,
+      });
+      return;
+    }
+    
     setNeedsRefresh(false);
     setIsEditing(true);
     setBanner(null);
@@ -265,12 +305,12 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
 
     try {
       for (const ch of changes) {
-        // Validare finala: id si version trebuie sa existe
+        // Final validation: id and version must exist
         if (!ch.id || typeof ch.id !== 'number' || ch.id <= 0) {
-          throw new Error(`Entry invalid: id lipseste sau e invalid (${ch.id}). Refresh si incearca din nou.`);
+          throw new Error(`Invalid entry: id missing or invalid (${ch.id}). Refresh and try again.`);
         }
         if (!ch.body.version || typeof ch.body.version !== 'number') {
-          throw new Error(`Entry invalid: version lipseste sau e invalid (${ch.body.version}). Refresh si incearca din nou.`);
+          throw new Error(`Invalid entry: version missing or invalid (${ch.body.version}). Refresh and try again.`);
         }
 
         await apiPatch(`/timetables/entries/${ch.id}`, ch.body, accessToken);
@@ -284,7 +324,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
         await loadTimetableForClass(selectedClassId);
         setBanner({
           type: "ok",
-          text: "Modificările au fost salvate. Studenții vor vedea actualizarea (auto-refresh).",
+          text: "Changes saved. Students will see the update (auto-refresh).",
         });
       } else {
         await loadMyTimetable();
@@ -299,7 +339,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
         setNeedsRefresh(true);
         setBanner({
           type: "warn",
-          text: "Intrarea nu mai exista (a fost stearsa sau regenerata). Apasa Refresh pentru a incarca orarul actual.",
+          text: "Entry no longer exists (deleted or regenerated). Click Refresh to load current timetable.",
         });
       }
       // optimistic lock / locking conflicts
@@ -307,7 +347,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
         setNeedsRefresh(true);
         setBanner({
           type: "warn",
-          text: "Concurență detectată (versiune depășită / blocare). Apasă Refresh ca să preiei varianta curentă.",
+          text: "Concurrency detected (outdated version / lock). Click Refresh to get current version.",
         });
       } else {
         setBanner({ type: "error", text: msg });
@@ -343,7 +383,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
           </div>
           <div className="subtitle">
             {isEditing
-              ? "Editing mode: modificările nu sunt salvate încă."
+              ? "Editing mode: changes are not saved yet."
               : "Vizualizare (grid zile × intervale)."}
           </div>
         </div>
@@ -401,7 +441,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
             <button
               className="btn danger"
               onClick={async () => {
-                const confirmed = window.confirm(`Esti sigur ca vrei sa stergi orarul pentru ${selectedClassName || `clasa ${selectedClassId}`}?`);
+                const confirmed = window.confirm(`Are you sure you want to delete the timetable for ${selectedClassName || `class ${selectedClassId}`}?`);
                 if (!confirmed) return;
                 setLoading(true);
                 setBanner(null);
@@ -548,15 +588,25 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                                   ))}
                                 </select>
 
-                                <input
-                                  className="input small"
-                                  type="number"
-                                  placeholder="room_id / gol=null"
+                                <select
+                                  className="select small"
                                   value={cell.room_id ?? ""}
-                                  onChange={(ev) =>
-                                    updateEntryLocal(cell.id, { room_id: normalizeRoom(ev.target.value) })
-                                  }
-                                />
+                                  onChange={(ev) => {
+                                    const roomId = ev.target.value === "" ? null : Number(ev.target.value);
+                                    const room = roomId ? roomsById.get(roomId) : null;
+                                    updateEntryLocal(cell.id, {
+                                      room_id: roomId,
+                                      room_name: room?.name ?? null,
+                                    });
+                                  }}
+                                >
+                                  <option value="">— No room —</option>
+                                  {rooms.map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                      {r.name} (Capacitate: {r.capacity})
+                                    </option>
+                                  ))}
+                                </select>
 
                                 <div className="cellVersion">v{cell.version}</div>
                               </div>

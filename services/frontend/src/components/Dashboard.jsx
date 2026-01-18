@@ -16,9 +16,9 @@ function hasAnyRole(userRoles, allowedRoles) {
 }
 
 function defaultActionForRoles(roles) {
-  // Student/professor -> orarul meu
+  // Student/professor -> my timetable
   if (roles.includes("student") || roles.includes("professor")) return "my-timetable";
-  // Secretariat/scheduler/admin/sysadmin -> orar pe clasă
+  // Secretariat/scheduler/admin/sysadmin -> class timetable
   return "class-timetable";
 }
 
@@ -34,7 +34,7 @@ export default function Dashboard({ accessToken, idToken, onRefreshToken, onLogo
 
   const [active, setActive] = useState(() => defaultActionForRoles(roles));
 
-  // dacă rolurile se schimbă (refresh token) sau active nu mai e permis, corectăm
+  // If roles change (token refresh) or active is no longer allowed, correct it
   useEffect(() => {
     const def = defaultActionForRoles(roles);
     if (!visibleActionIds.includes(active)) setActive(def);
