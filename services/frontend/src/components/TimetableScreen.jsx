@@ -113,7 +113,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       }
       return;
     }
-    
+
     // For students, use regular /me endpoint
     const me = await apiGet("/me", accessToken);
     const classId = me?.class_id ?? me?.classId ?? me?.class?.id;
@@ -271,9 +271,10 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       }
     } catch (e) {
       const msg = String(e.message || e);
+      const status = e.status || 500;
 
       // optimistic lock / locking conflicts
-      if (msg.includes("API error 409") || msg.includes("API error 412") || msg.includes("API error 423")) {
+      if (status === 409 || status === 412 || status === 423) {
         setNeedsRefresh(true);
         setBanner({
           type: "warn",
@@ -436,7 +437,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                     <td>{TIME_LABELS[e.index_in_day || 0] || `Slot ${e.index_in_day}`}</td>
                     <td>{e.subject_name || `#${e.subject_id}`}</td>
                     <td>{e.class_name || `Clasa ${e.class_id}`}</td>
-                    <td>{e.room_id ? `Sala ${e.room_id}` : "—"}</td>
+                    <td>{e.room_name || (e.room_id ? `Sala ${e.room_id}` : "—")}</td>
                   </tr>
                 ))}
             </tbody>
@@ -490,7 +491,7 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
                               <>
                                 <div className="cellTitle">{cell.subject_name ?? `#${cell.subject_id}`}</div>
                                 <div className="cellMeta">
-                                  {cell.room_id == null ? "—" : `Sala ${cell.room_id}`}
+                                  {cell.room_name ?? (cell.room_id == null ? "—" : `Sala ${cell.room_id}`)}
                                   {cell.teacher_name && (
                                     <div className="cellTeacher">{cell.teacher_name}</div>
                                   )}

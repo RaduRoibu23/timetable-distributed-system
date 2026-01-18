@@ -217,8 +217,8 @@ def seed_demo_data():
             ("Sala 201", 35), ("Sala 202", 30), ("Sala 203", 25),
             ("Sala 301", 40), ("Sala 302", 35), ("Sala 303", 30),
             ("Sala 401", 35), ("Sala 402", 30),
-            ("Laborator Informatică", 20), ("Laborator Fizică", 25),
-            ("Laborator Chimie", 20), ("Laborator Biologie", 25),
+            ("Laborator Informatică", 25), ("Laborator Fizică", 25),
+            ("Laborator Chimie", 25), ("Laborator Biologie", 25),
             ("Sala Sport", 50), ("Sala Muzică", 30), ("Sala Desen", 25),
             ("Amfiteatru", 60), ("Sala Conferințe", 40)
         ]

@@ -61,6 +61,7 @@ class TimetableEntryRead(BaseModel):
     weekday: int | None = None
     index_in_day: int | None = None
     teacher_name: str | None = None  # Teacher name(s) for this subject/class
+    room_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -449,6 +450,27 @@ def update_timetable_entry(
                     status_code=400,
                     detail=f"Room is already occupied by class {other_class.name if other_class else overlapping_entry.class_id} at this time slot"
                 )
+
+            # Constraint: Sport <-> Sala de sport
+            # Get subject name (either new or existing)
+            current_subject_id = entry_in.subject_id if entry_in.subject_id is not None else entry.subject_id
+            subject_obj = db.query(Subject).filter(Subject.id == current_subject_id).first()
+            
+            # Check if this is the "Sport" room
+            is_sport_room = (room.name == "Sala Sport")
+            is_sport_subject = (subject_obj and subject_obj.name == "Sport")
+
+            if is_sport_subject and not is_sport_room:
+                 raise HTTPException(
+                    status_code=400,
+                    detail="Materia 'Sport' se poate desfășura doar în 'Sala de sport'."
+                )
+            
+            if not is_sport_subject and is_sport_room:
+                 raise HTTPException(
+                    status_code=400,
+                    detail="Doar materia 'Sport' se poate desfășura în 'Sala de sport'."
+                )
             
             entry.room_id = entry_in.room_id
 
@@ -648,9 +670,8 @@ def _get_teacher_display_name(db: Session, teacher_profile: UserProfile) -> str:
                         # Remove username pattern if present (e.g., ", professor13" or "professor13")
                         if teacher_profile.username in display_name:
                             display_name = display_name.replace(teacher_profile.username, "").strip()
-                        # Remove any "professor" + number pattern (e.g., "professor13", "professor11")
-                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip()
-                        # Remove trailing comma and whitespace
+                        # Improve regex to catch leading comma/space + professor + digits
+                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip()
                         display_name = display_name.rstrip(",").strip()
                         _teacher_name_cache[teacher_profile.username] = display_name
                         return display_name
@@ -658,14 +679,14 @@ def _get_teacher_display_name(db: Session, teacher_profile: UserProfile) -> str:
                         display_name = first_name.strip()
                         if teacher_profile.username in display_name:
                             display_name = display_name.replace(teacher_profile.username, "").strip()
-                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
                         _teacher_name_cache[teacher_profile.username] = display_name
                         return display_name
                     elif last_name:
                         display_name = last_name.strip()
                         if teacher_profile.username in display_name:
                             display_name = display_name.replace(teacher_profile.username, "").strip()
-                        display_name = re.sub(r',?\s*professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
                         _teacher_name_cache[teacher_profile.username] = display_name
                         return display_name
         except Exception:
@@ -681,7 +702,14 @@ def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
     cls = db.query(SchoolClass).filter(SchoolClass.id == entry.class_id).first()
     subj = db.query(Subject).filter(Subject.id == entry.subject_id).first()
     ts = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
-    
+    room = None
+    if entry.room_id is not None and entry.room_id != 0:
+        room = db.query(Room).filter(Room.id == entry.room_id).first()
+    if room:
+        room_name = (room.name or "").strip() or None
+    else:
+        room_name = f"Sala {entry.room_id}" if (entry.room_id is not None and entry.room_id != 0) else None
+
     # Get teacher name(s) from Curriculum -> SubjectTeacher or legacy teacher_id
     teacher_name = None
     curriculum = db.query(Curriculum).filter(
@@ -728,5 +756,6 @@ def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
         weekday=getattr(ts, "weekday", None),
         index_in_day=getattr(ts, "index_in_day", None),
         teacher_name=teacher_name,
+        room_name=room_name,
     )
 

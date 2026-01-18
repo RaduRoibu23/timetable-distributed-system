@@ -16,6 +16,7 @@ from timetable_shared.models import (
     Room,
     UserProfile,
     ConflictReport,
+    Subject,
 )
 
 
@@ -77,6 +78,12 @@ def generate_timetable_for_class(
         .filter(Room.capacity >= student_count)
         .all()
     )
+
+    # Identify "Sport" subject (short_code SPORT, e.g. Educație fizică) and Sala Sport
+    sport_subject = db.query(Subject).filter(Subject.short_code == "SPORT").first()
+    sport_room = db.query(Room).filter(Room.name == "Sala Sport").first()
+    sport_subject_id = sport_subject.id if sport_subject else None
+    sport_room_id = sport_room.id if sport_room else None
 
     # Build curriculum with teacher mapping
     curriculum_map: dict[int, Curriculum] = {}  # subject_id -> Curriculum
@@ -147,6 +154,11 @@ def generate_timetable_for_class(
         used_rooms: dict[int, set[int]] = defaultdict(set)  # timeslot_id -> set of room_ids
         used_teachers: dict[int, set[int]] = defaultdict(set)  # timeslot_id -> set of teacher_ids
 
+        # Utilizare sali in DB (o singura data per incercare) pentru repartitie uniforma
+        room_usage = defaultdict(int)
+        for e in db.query(TimetableEntry).filter(TimetableEntry.room_id.isnot(None)).all():
+            room_usage[int(e.room_id)] += 1
+
         # Use preferred timeslots (earlier hours first)
         preferred_slots = _get_preferred_timeslots(timeslots_by_day)
 
@@ -192,64 +204,66 @@ def generate_timetable_for_class(
             if picked_subj is None:
                 return {}
 
-            # Try to assign a room
+            # Try to assign a room (diverse sali, fara dubluri la acelasi timeslot)
             assigned_room = None
             if available_rooms:
-                # Check which rooms are already occupied by other classes at this timeslot
                 occupied_room_ids = set()
                 existing_entries = (
                     db.query(TimetableEntry)
                     .filter(
                         TimetableEntry.timeslot_id == ts.id,
-                        TimetableEntry.class_id != class_id,  # Other classes
-                        TimetableEntry.room_id.isnot(None)
+                        TimetableEntry.class_id != class_id,
+                        TimetableEntry.room_id.isnot(None),
                     )
                     .all()
                 )
                 for entry in existing_entries:
                     if entry.room_id:
-                        occupied_room_ids.add(entry.room_id)
-                
-                # Also check rooms assigned in current batch (from assignment dict)
-                for other_ts_id, (_, other_room_id) in assignment.items():
-                    if other_ts_id == ts.id and other_room_id:  # Same timeslot, different entry
-                        occupied_room_ids.add(other_room_id)
-                
-                # Filter out occupied rooms and shuffle for even distribution
-                free_rooms = [r for r in available_rooms if r.id not in occupied_room_ids]
-                
-                # If all rooms are occupied, fall back to all available rooms
+                        occupied_room_ids.add(int(entry.room_id))
+
+                # Reguli: Sport (short_code SPORT) -> doar Sala Sport; restul -> NU Sala Sport
+                free_rooms = []
+                for r in available_rooms:
+                    if r.id in occupied_room_ids:
+                        continue
+                    if picked_subj == sport_subject_id:
+                        if sport_room_id and r.id != sport_room_id:
+                            continue
+                    if sport_room_id and r.id == sport_room_id:
+                        if picked_subj != sport_subject_id:
+                            continue
+                    free_rooms.append(r)
+
                 if not free_rooms:
-                    free_rooms = available_rooms
-                
-                # Shuffle for variety and even distribution
-                shuffled_rooms = list(free_rooms)
-                random.shuffle(shuffled_rooms)
-                
-                for room in shuffled_rooms:
-                    # Check room availability
+                    free_rooms = [r for r in available_rooms if r.id not in occupied_room_ids]
+
+                # Sorteaza dupa utilizare (sali diverse, repartitie uniforma)
+                free_rooms.sort(key=lambda r: (room_usage[r.id], r.id))
+
+                for room in free_rooms:
                     if not _is_room_available(room.id, day, int(ts.index_in_day)):
                         continue
-                    
-                    # Check room overlap (local to this assignment attempt)
                     if room.id in used_rooms[int(ts.id)]:
                         continue
-                    
-                    # Double-check: room should not be occupied by other classes or in current batch
                     if room.id in occupied_room_ids:
                         continue
-                    
                     assigned_room = room.id
                     used_rooms[int(ts.id)].add(room.id)
                     break
 
-            # If no room available, we can still create entry without room (conflict will be reported)
-            if assigned_room is None and available_rooms:
-                if job_id:
-                    conflicts.append({
-                        "type": "room_unavailable",
-                        "details": f"No available room for class {class_id} at weekday {day}, hour {ts.index_in_day}",
-                    })
+                # Fallback: daca nu s-a ales inca, ia prima neocupata (evita room_id NULL)
+                if assigned_room is None and free_rooms:
+                    for room in free_rooms:
+                        if room.id not in occupied_room_ids:
+                            assigned_room = room.id
+                            used_rooms[int(ts.id)].add(room.id)
+                            break
+
+            if assigned_room is None and available_rooms and job_id:
+                conflicts.append({
+                    "type": "room_unavailable",
+                    "details": f"No available room for class {class_id} at weekday {day}, hour {ts.index_in_day}",
+                })
 
             assignment[int(ts.id)] = (picked_subj, assigned_room)
             used_per_day[day][picked_subj] += 1

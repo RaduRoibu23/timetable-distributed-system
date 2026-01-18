@@ -10,7 +10,9 @@ export async function apiGet(path, accessToken) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(`API error ${response.status}: ${JSON.stringify(error)}`);
+    const err = new Error(error.detail || `Error ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -28,7 +30,9 @@ export async function apiPost(path, body, accessToken) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(`API error ${response.status}: ${JSON.stringify(error)}`);
+    const err = new Error(error.detail || `Error ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -46,7 +50,9 @@ export async function apiPut(path, body, accessToken) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(`API error ${response.status}: ${JSON.stringify(error)}`);
+    const err = new Error(error.detail || `Error ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -64,7 +70,9 @@ export async function apiPatch(path, body, accessToken) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(`API error ${response.status}: ${JSON.stringify(error)}`);
+    const err = new Error(error.detail || `Error ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -78,7 +86,9 @@ export async function apiDelete(path, accessToken) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(`API error ${response.status}: ${JSON.stringify(error)}`);
+    const err = new Error(error.detail || `Error ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   if (response.status === 204) return { detail: 'Deleted' };
   return response.json();
