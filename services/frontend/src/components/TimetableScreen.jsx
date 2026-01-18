@@ -205,8 +205,21 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
     const changed = [];
 
     for (const e of entries) {
+      // Validare: entry trebuie sa aiba id valid si version
+      if (!e.id || typeof e.id !== 'number' || e.id <= 0) {
+        console.warn('Entry fara id valid:', e);
+        continue;
+      }
+      if (!e.version || typeof e.version !== 'number') {
+        console.warn('Entry fara version valid:', e);
+        continue;
+      }
+
       const o = origById.get(e.id);
-      if (!o) continue;
+      if (!o) {
+        console.warn('Entry nu exista in original:', e.id);
+        continue;
+      }
 
       const subjectChanged = e.subject_id !== o.subject_id;
       const roomChanged = (e.room_id ?? null) !== (o.room_id ?? null);
@@ -252,6 +265,14 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
 
     try {
       for (const ch of changes) {
+        // Validare finala: id si version trebuie sa existe
+        if (!ch.id || typeof ch.id !== 'number' || ch.id <= 0) {
+          throw new Error(`Entry invalid: id lipseste sau e invalid (${ch.id}). Refresh si incearca din nou.`);
+        }
+        if (!ch.body.version || typeof ch.body.version !== 'number') {
+          throw new Error(`Entry invalid: version lipseste sau e invalid (${ch.body.version}). Refresh si incearca din nou.`);
+        }
+
         await apiPatch(`/timetables/entries/${ch.id}`, ch.body, accessToken);
       }
 
@@ -273,8 +294,16 @@ export default function TimetableScreen({ accessToken, roles, mode }) {
       const msg = String(e.message || e);
       const status = e.status || 500;
 
+      // Entry not found (404) - probabil a fost sters sau regenerat
+      if (status === 404) {
+        setNeedsRefresh(true);
+        setBanner({
+          type: "warn",
+          text: "Intrarea nu mai exista (a fost stearsa sau regenerata). Apasa Refresh pentru a incarca orarul actual.",
+        });
+      }
       // optimistic lock / locking conflicts
-      if (status === 409 || status === 412 || status === 423) {
+      else if (status === 409 || status === 412 || status === 423) {
         setNeedsRefresh(true);
         setBanner({
           type: "warn",

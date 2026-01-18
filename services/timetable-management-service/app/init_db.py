@@ -17,6 +17,10 @@ from app.models import (
 def _get_or_create(session: Session, model, defaults=None, **kwargs):
     instance = session.query(model).filter_by(**kwargs).first()
     if instance:
+        # Update existing instance with defaults if provided
+        if defaults:
+            for key, value in defaults.items():
+                setattr(instance, key, value)
         return instance
     params = dict(kwargs)
     if defaults:
@@ -29,24 +33,22 @@ def _get_or_create(session: Session, model, defaults=None, **kwargs):
 
 def seed_demo_data():
     """
-    Seed demo data:
-    - Classes: 12 clase (IX-A/B/C, X-A/B/C, XI-A/B/C, XII-A/B/C)
+    Seed demo data (simplified for testing):
+    - Classes: 4 clase (IX-A, IX-B, X-A, X-B)
     - Time slots: Monday–Friday x 1..7 (35)
     - Subjects and curriculum (same for all classes, 35 hours/week)
-    - UserProfile for students: 20-25 per class
-    - UserProfile for professors: 15-20 profesori
-    - Rooms: 15-20 săli cu capacități variate
+    - UserProfile for students: 20 per class (fixed)
+    - UserProfile for professors: 10 profesori
+    - Rooms: 6 sali + Sala Sport (7 total)
     """
 
     session: Session = SessionLocal()
     try:
-        # Classes (12 clase)
+        # Classes (4 clase pentru testare)
         classes = []
         class_names = [
-            "IX-A", "IX-B", "IX-C",
-            "X-A", "X-B", "X-C",
-            "XI-A", "XI-B", "XI-C",
-            "XII-A", "XII-B", "XII-C"
+            "IX-A", "IX-B",
+            "X-A", "X-B"
         ]
         for name in class_names:
             cls = _get_or_create(session, SchoolClass, name=name)
@@ -123,12 +125,12 @@ def seed_demo_data():
             teacher_counter = 1  # Start with teacher_id = 1 (professor01)
             
             # First pass: assign teachers to unique subjects
-            # Use 20 teachers (professor01-20) - each subject gets one teacher
-            num_teachers = 20
+            # Use 10 teachers (professor01-10) - each subject gets one teacher
+            num_teachers = 10
             for code in unique_subjects:
                 if code not in subject_to_teacher:
                     subject_to_teacher[code] = teacher_counter
-                    teacher_counter = (teacher_counter % num_teachers) + 1  # Cycle through 1-20 (professor01-20)
+                    teacher_counter = (teacher_counter % num_teachers) + 1  # Cycle through 1-10 (professor01-10)
             
             # Second pass: create/update curriculum entries
             for code, total_hours in aggregated.items():
@@ -183,13 +185,14 @@ def seed_demo_data():
         for cls in classes:
             ensure_curriculum_for_class(cls)
 
-        # Map students to classes (20-25 students per class, random)
-        # student01-XX -> IX-A, studentXX+1-YY -> IX-B, etc.
+        # Map students to classes (20 students per class, fixed)
+        # student01-20 -> IX-A, student21-40 -> IX-B, student41-60 -> X-A, student61-80 -> X-B
         student_counter = 1
+        students_per_class = 20  # Fixed: 20 students per class
         for class_idx, cls in enumerate(classes):
-            students_per_class = random.randint(20, 25)  # Random between 20-25
             for i in range(students_per_class):
-                username = f"student{student_counter:03d}"  # student001, student002, etc.
+                username = f"student{student_counter:02d}"  # student01, student02, etc.
+                # Get or create, and ALWAYS update class_id (even if user already exists)
                 _get_or_create(
                     session,
                     UserProfile,
@@ -198,9 +201,9 @@ def seed_demo_data():
                 )
                 student_counter += 1
 
-        # Map professors (professor01-20) with teacher_id
-        # 20 profesori pentru a acoperi 13 materii (fiecare materie primește un profesor)
-        num_teachers = 20
+        # Map professors (professor01-10) with teacher_id
+        # 10 profesori pentru a acoperi 13 materii (cycling through teachers)
+        num_teachers = 10
         for prof_num in range(1, num_teachers + 1):
             username = f"professor{prof_num:02d}"  # professor01, professor02, etc.
             _get_or_create(
@@ -210,17 +213,12 @@ def seed_demo_data():
                 defaults={"teacher_id": prof_num},
             )
         
-        # Add 15-20 rooms with various capacities
+        # Add 6 sali + Sala Sport (7 total) - suficiente pentru 4 clase
         from app.models import Room
         rooms_data = [
-            ("Sala 101", 30), ("Sala 102", 25), ("Sala 103", 30),
-            ("Sala 201", 35), ("Sala 202", 30), ("Sala 203", 25),
-            ("Sala 301", 40), ("Sala 302", 35), ("Sala 303", 30),
-            ("Sala 401", 35), ("Sala 402", 30),
-            ("Laborator Informatică", 25), ("Laborator Fizică", 25),
-            ("Laborator Chimie", 25), ("Laborator Biologie", 25),
-            ("Sala Sport", 50), ("Sala Muzică", 30), ("Sala Desen", 25),
-            ("Amfiteatru", 60), ("Sala Conferințe", 40)
+            ("Sala 101", 25), ("Sala 102", 25), ("Sala 103", 25),
+            ("Sala 201", 25), ("Sala 202", 25), ("Sala 203", 25),
+            ("Sala Sport", 50)
         ]
         for room_name, capacity in rooms_data:
             _get_or_create(session, Room, name=room_name, defaults={"capacity": capacity})

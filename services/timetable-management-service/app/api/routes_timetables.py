@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List
 from collections import Counter
 
@@ -144,7 +145,16 @@ def get_timetable_for_class(
         .filter(TimetableEntry.class_id == class_id)
         .all()
     )
-    return [_to_read_model(db, e) for e in entries]
+    # Filtreaza entries-urile invalide (fara id) si converteste la read model
+    result = []
+    for e in entries:
+        try:
+            if e and hasattr(e, 'id') and e.id is not None:
+                result.append(_to_read_model(db, e))
+        except (ValueError, AttributeError) as err:
+            # Log error dar continua cu restul entries-urilor
+            logging.warning(f"Skipping invalid timetable entry: {err}")
+    return result
 
 
 @router.delete("/classes/{class_id}")
@@ -210,7 +220,16 @@ def get_my_timetable(
         .filter(TimetableEntry.class_id == target_class_id)
         .all()
     )
-    return [_to_read_model(db, e) for e in entries]
+    # Filtreaza entries-urile invalide (fara id) si converteste la read model
+    result = []
+    for e in entries:
+        try:
+            if e and hasattr(e, 'id') and e.id is not None:
+                result.append(_to_read_model(db, e))
+        except (ValueError, AttributeError) as err:
+            import logging
+            logging.warning(f"Skipping invalid timetable entry: {err}")
+    return result
 
 
 @router.get("/me/teacher", response_model=List[TimetableEntryRead])
@@ -264,8 +283,16 @@ def get_my_teacher_timetable(
         ).all()
         entries.extend(class_entries)
     
-    # Return only actual entries (no empty slots)
-    return [_to_read_model(db, e) for e in entries]
+    # Return only actual entries (no empty slots), filtrate pentru entries valide
+    result = []
+    for e in entries:
+        try:
+            if e and hasattr(e, 'id') and e.id is not None:
+                result.append(_to_read_model(db, e))
+        except (ValueError, AttributeError) as err:
+            import logging
+            logging.warning(f"Skipping invalid timetable entry: {err}")
+    return result
 
 
 @router.patch("/entries/{entry_id}", response_model=TimetableEntryRead)
@@ -275,11 +302,18 @@ def update_timetable_entry(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles(["scheduler", "secretariat", "admin", "sysadmin"])),
 ):
+    # Validare entry_id
+    if not entry_id or entry_id <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid entry_id: {entry_id}. Entry ID must be a positive integer."
+        )
+
     entry = db.query(TimetableEntry).filter(TimetableEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(
             status_code=404, 
-            detail="Timetable entry not found. It may have been deleted by another user."
+            detail=f"Timetable entry with id {entry_id} not found. It may have been deleted or the timetable may have been regenerated. Please refresh the page."
         )
 
     # Optimistic locking: check version
@@ -636,61 +670,79 @@ def _get_teacher_display_name(db: Session, teacher_profile: UserProfile) -> str:
     
     # Refresh token if expired (cache for 5 minutes)
     if not admin_token or current_time > _admin_token_cache.get("expires_at", 0):
-        try:
-            url = f"{settings.KEYCLOAK_ADMIN_URL}/realms/master/protocol/openid-connect/token"
-            data = {
-                "grant_type": "password",
-                "client_id": "admin-cli",
-                "username": settings.KEYCLOAK_ADMIN_USER,
-                "password": settings.KEYCLOAK_ADMIN_PASSWORD,
-            }
-            resp = requests.post(url, data=data, timeout=3)
-            if resp.status_code == 200:
-                admin_token = resp.json().get("access_token")
-                _admin_token_cache["token"] = admin_token
-                _admin_token_cache["expires_at"] = current_time + 300  # 5 minutes
-        except Exception:
-            pass
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                url = f"{settings.KEYCLOAK_ADMIN_URL}/realms/master/protocol/openid-connect/token"
+                data = {
+                    "grant_type": "password",
+                    "client_id": "admin-cli",
+                    "username": settings.KEYCLOAK_ADMIN_USER,
+                    "password": settings.KEYCLOAK_ADMIN_PASSWORD,
+                }
+                resp = requests.post(url, data=data, timeout=5)
+                if resp.status_code == 200:
+                    admin_token = resp.json().get("access_token")
+                    _admin_token_cache["token"] = admin_token
+                    _admin_token_cache["expires_at"] = current_time + 300  # 5 minutes
+                    break
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(1 * (attempt + 1))  # Exponential backoff: 1s, 2s, 3s
+                pass
     
     if admin_token:
-        try:
-            url = f"{settings.KEYCLOAK_ADMIN_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
-            headers = {"Authorization": f"Bearer {admin_token}"}
-            params = {"username": teacher_profile.username, "exact": "true"}
-            resp = requests.get(url, headers=headers, params=params, timeout=3)
-            if resp.status_code == 200:
-                users = resp.json()
-                if users and len(users) > 0:
-                    kc_user = users[0]
-                    first_name = kc_user.get("firstName") or kc_user.get("first_name")
-                    last_name = kc_user.get("lastName") or kc_user.get("last_name")
-                    if first_name and last_name:
-                        # Clean up name: remove username and professorXX patterns
-                        display_name = f"{first_name} {last_name}".strip()
-                        # Remove username pattern if present (e.g., ", professor13" or "professor13")
-                        if teacher_profile.username in display_name:
-                            display_name = display_name.replace(teacher_profile.username, "").strip()
-                        # Improve regex to catch leading comma/space + professor + digits
-                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip()
-                        display_name = display_name.rstrip(",").strip()
-                        _teacher_name_cache[teacher_profile.username] = display_name
-                        return display_name
-                    elif first_name:
-                        display_name = first_name.strip()
-                        if teacher_profile.username in display_name:
-                            display_name = display_name.replace(teacher_profile.username, "").strip()
-                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
-                        _teacher_name_cache[teacher_profile.username] = display_name
-                        return display_name
-                    elif last_name:
-                        display_name = last_name.strip()
-                        if teacher_profile.username in display_name:
-                            display_name = display_name.replace(teacher_profile.username, "").strip()
-                        display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
-                        _teacher_name_cache[teacher_profile.username] = display_name
-                        return display_name
-        except Exception:
-            pass
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                url = f"{settings.KEYCLOAK_ADMIN_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
+                headers = {"Authorization": f"Bearer {admin_token}"}
+                params = {"username": teacher_profile.username, "exact": "true"}
+                resp = requests.get(url, headers=headers, params=params, timeout=5)
+                if resp.status_code == 200:
+                    users = resp.json()
+                    if users and len(users) > 0:
+                        kc_user = users[0]
+                        first_name = kc_user.get("firstName") or kc_user.get("first_name")
+                        last_name = kc_user.get("lastName") or kc_user.get("last_name")
+                        if first_name and last_name:
+                            # Clean up name: remove username and professorXX patterns
+                            display_name = f"{first_name} {last_name}".strip()
+                            # Remove username pattern if present (e.g., ", professor13" or "professor13")
+                            if teacher_profile.username in display_name:
+                                display_name = display_name.replace(teacher_profile.username, "").strip()
+                            # Improve regex to catch leading comma/space + professor + digits
+                            display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip()
+                            display_name = display_name.rstrip(",").strip()
+                            _teacher_name_cache[teacher_profile.username] = display_name
+                            return display_name
+                        elif first_name:
+                            display_name = first_name.strip()
+                            if teacher_profile.username in display_name:
+                                display_name = display_name.replace(teacher_profile.username, "").strip()
+                            display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                            _teacher_name_cache[teacher_profile.username] = display_name
+                            return display_name
+                        elif last_name:
+                            display_name = last_name.strip()
+                            if teacher_profile.username in display_name:
+                                display_name = display_name.replace(teacher_profile.username, "").strip()
+                            display_name = re.sub(r'(?:,?\s*)?professor\d+', '', display_name, flags=re.IGNORECASE).strip().rstrip(",").strip()
+                            _teacher_name_cache[teacher_profile.username] = display_name
+                            return display_name
+                elif resp.status_code == 401:
+                    # Token expired, clear cache and don't retry
+                    _admin_token_cache["token"] = None
+                    _admin_token_cache["expires_at"] = 0
+                    break
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(1 * (attempt + 1))  # Exponential backoff: 1s, 2s, 3s
+                pass
+        
+        # If all retries failed, clear cache entry to allow retry on next call
+        if teacher_profile.username in _teacher_name_cache:
+            del _teacher_name_cache[teacher_profile.username]
     
     # Fallback to username
     display_name = teacher_profile.username
@@ -699,6 +751,10 @@ def _get_teacher_display_name(db: Session, teacher_profile: UserProfile) -> str:
 
 
 def _to_read_model(db: Session, entry: TimetableEntry) -> TimetableEntryRead:
+    # Validare: entry trebuie sa aiba id
+    if not entry or not hasattr(entry, 'id') or entry.id is None:
+        raise ValueError(f"Invalid TimetableEntry: missing id. Entry: {entry}")
+
     cls = db.query(SchoolClass).filter(SchoolClass.id == entry.class_id).first()
     subj = db.query(Subject).filter(Subject.id == entry.subject_id).first()
     ts = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()

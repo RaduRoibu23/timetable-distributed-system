@@ -47,6 +47,8 @@ export default function Login({ onLogin }) {
             <input
               className="input"
               id="username"
+              name="username"
+              autoComplete="off"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="user"
@@ -59,6 +61,8 @@ export default function Login({ onLogin }) {
             <input
               className="input"
               id="password"
+              name="password"
+              autoComplete="off"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

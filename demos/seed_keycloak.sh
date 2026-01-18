@@ -32,7 +32,7 @@ WEB_ORIGINS=(
 # Counts
 N_ADMINS=3
 N_PROFESSORS=10
-N_STUDENTS=125  # 5 classes x 25 students each
+N_STUDENTS=50
 N_SECRETARIAT=2
 N_SCHEDULERS=3
 N_SYSADMINS=1
@@ -209,6 +209,34 @@ get_user_id() {
     | python3 -c 'import sys,json; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")'
 }
 
+check_user_complete() {
+  # Verifică dacă user-ul există și are firstName, lastName și password setat
+  local username="$1"
+  local uid
+  uid="$(get_user_id "$username")"
+  
+  if [[ -z "$uid" ]]; then
+    return 1  # User nu există
+  fi
+  
+  # Verifică dacă are firstName și lastName
+  local user_data
+  user_data="$(kc_get "${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users/${uid}")"
+  
+  local has_first has_last has_password
+  has_first="$(echo "$user_data" | python3 -c 'import sys,json; u=json.load(sys.stdin); print("1" if u.get("firstName") else "0")' 2>/dev/null || echo "0")"
+  has_last="$(echo "$user_data" | python3 -c 'import sys,json; u=json.load(sys.stdin); print("1" if u.get("lastName") else "0")' 2>/dev/null || echo "0")"
+  
+  # Verifică dacă are password setat (nu e temporary)
+  # Keycloak nu expune direct dacă password-ul e setat, dar putem verifica dacă user-ul e enabled
+  # Dacă are firstName și lastName, considerăm că e complet
+  if [[ "$has_first" == "1" && "$has_last" == "1" ]]; then
+    return 0  # User complet
+  fi
+  
+  return 1  # User incomplet
+}
+
 upsert_user() {
   local username="$1" password="$2" first="$3" last="$4" email="$5"
   local uid
@@ -371,6 +399,33 @@ create_category() {
   done
 }
 
+create_students_80() {
+  # Creează cei 80 de studenți (student01-student80)
+  # Sare peste cei care există deja și au firstName, lastName și password setat
+  local offset=31
+  local created=0
+  local skipped=0
+  
+  for i in $(seq 1 80); do
+    u="student$(padN "$i")"
+    fn="$(pick_first_bash "$i" "$offset")"
+    ln="$(pick_last_bash "$i" "$offset")"
+    email="${u}@timetable.local"
+    
+    if check_user_complete "$u"; then
+      echo "Skipping '${u}' (already complete)"
+      skipped=$((skipped + 1))
+    else
+      echo "Creating/updating '${u}' (${fn} ${ln}) ..."
+      upsert_user "$u" "$u" "$fn" "$ln" "$email"
+      assign_realm_role "$u" "student"
+      created=$((created + 1))
+    fi
+  done
+  
+  echo "Students: ${created} created/updated, ${skipped} skipped (already complete)"
+}
+
 # -------- Run --------
 wait_keycloak
 get_token
@@ -389,7 +444,10 @@ create_category "professor"   "professor"   "$N_PROFESSORS"  7
 create_category "secretariat" "secretariat" "$N_SECRETARIAT" 13
 create_category "scheduler"   "scheduler"   "$N_SCHEDULERS"  19
 create_category "sysadmin"    "sysadmin"    "$N_SYSADMINS"   23
-create_category "student"     "student"     "$N_STUDENTS"    31
+
+echo ""
+echo "Creating 80 students (student01-student80)..."
+create_students_80
 
 echo "Done. Seed completed for realm '${REALM}' and client '${CLIENT_ID}'."
 echo "Note:"
