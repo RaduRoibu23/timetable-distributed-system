@@ -3,6 +3,7 @@ Scheduling Engine Service - Worker that consumes timetable generation jobs from 
 """
 from __future__ import annotations
 
+from curses import def_prog_mode
 import json
 import os
 import time
@@ -25,7 +26,7 @@ def get_rabbitmq_url() -> str:
 def process_job(job_id: int, class_id: int, db_session):
     """Process a single timetable generation job."""
     print(f"[Worker] Processing job {job_id} for class {class_id}")
-    
+    #time.sleep(5) debug only
     # Update job status to processing
     job = db_session.query(TimetableJob).filter(TimetableJob.id == job_id).first()
     if not job:
