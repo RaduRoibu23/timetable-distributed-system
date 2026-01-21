@@ -302,7 +302,6 @@ def update_timetable_entry(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles(["scheduler", "secretariat", "admin", "sysadmin"])),
 ):
-    # Validare entry_id
     if not entry_id or entry_id <= 0:
         raise HTTPException(
             status_code=400,
@@ -323,15 +322,11 @@ def update_timetable_entry(
             detail=f"Version mismatch. Expected {entry.version}, got {entry_in.version}. Entry may have been modified or deleted by another user."
         )
 
-    # Teacher conflict validation - check BEFORE applying any changes
-    # This ensures we catch conflicts regardless of what field is being changed
     from app.models import Curriculum, TeacherAvailability, TimeSlot, SubjectTeacher
     timeslot = db.query(TimeSlot).filter(TimeSlot.id == entry.timeslot_id).first()
     if timeslot:
-        # Determine which subject to check (new subject if changed, otherwise current)
         subject_id_to_check = entry_in.subject_id if entry_in.subject_id is not None else entry.subject_id
         
-        # Find teacher for this subject+class combination
         curriculum = (
             db.query(Curriculum)
             .filter(

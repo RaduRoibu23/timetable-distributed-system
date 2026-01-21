@@ -32,15 +32,6 @@ def _get_or_create(session: Session, model, defaults=None, **kwargs):
 
 
 def seed_demo_data():
-    """
-    Seed demo data (simplified for testing):
-    - Classes: 4 clase (IX-A, IX-B, X-A, X-B)
-    - Time slots: Monday–Friday x 1..7 (35)
-    - Subjects and curriculum (same for all classes, 35 hours/week)
-    - UserProfile for students: 20 per class (fixed)
-    - UserProfile for professors: 10 profesori
-    - Rooms: 6 sali + Sala Sport (7 total)
-    """
 
     session: Session = SessionLocal()
     try:

@@ -23,18 +23,15 @@ def verify_token(credentials=Depends(security)):
     token = credentials.credentials
 
     try:
-        # Step 1: Get header to extract KID
         headers = jwt.get_unverified_header(token)
 
-        # Step 2: Retrieve correct JWK for this token
         jwk = get_public_key(headers["kid"])
         if not jwk:
             raise HTTPException(status_code=401, detail="Invalid token: unknown KID")
 
-        # Step 3: Decode token using JWK directly
         payload = jwt.decode(
             token,
-            jwk,                         # IMPORTANT: use raw JWK
+            jwk,                        
             algorithms=[jwk["alg"]],
             issuer=settings.KEYCLOAK_ISSUER,
             options={"verify_aud": False}

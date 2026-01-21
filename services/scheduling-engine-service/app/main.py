@@ -26,7 +26,7 @@ def get_rabbitmq_url() -> str:
 def process_job(job_id: int, class_id: int, db_session):
     """Process a single timetable generation job."""
     print(f"[Worker] Processing job {job_id} for class {class_id}")
-    #time.sleep(5) debug only
+    time.sleep(5)
     # Update job status to processing
     job = db_session.query(TimetableJob).filter(TimetableJob.id == job_id).first()
     if not job:
@@ -121,7 +121,6 @@ def main():
     """Main worker loop."""
     print("[Worker] Starting Scheduling Engine Service...")
     
-    # Setup RabbitMQ connection
     rabbitmq_url = get_rabbitmq_url()
     
     while True:
@@ -131,15 +130,12 @@ def main():
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
             
-            # Declare queue (idempotent)
             channel.queue_declare(queue="timetable_generation", durable=True)
             
-            # Set QoS to process one message at a time per worker
             channel.basic_qos(prefetch_count=1)
             
             print("[Worker] Waiting for messages. To exit press CTRL+C")
             
-            # Consume messages
             channel.basic_consume(
                 queue="timetable_generation",
                 on_message_callback=lambda ch, method, properties, body: callback(

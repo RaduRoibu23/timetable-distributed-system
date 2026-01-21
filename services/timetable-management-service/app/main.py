@@ -12,7 +12,7 @@ from app.api.routes_audit import router as audit_router
 from app.api.routes_profiles import router as profiles_router
 
 from app.db import Base, engine
-from app import models  # noqa: F401
+from app import models  
 from app.init_db import seed_demo_data
 
 
@@ -30,14 +30,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # Create tables (for dev/demo; production should use migrations)
     Base.metadata.create_all(bind=engine)
-    # Seed demo data (idempotent)
     seed_demo_data()
 
 
 app.include_router(auth_router)
-app.include_router(compat_router)  # Must be before lessons_router to catch /lessons/mine
+app.include_router(compat_router)
 app.include_router(lessons_router)
 app.include_router(rooms_router)
 app.include_router(catalog_router)

@@ -4,8 +4,8 @@ set -e
 BASE_URL="http://localhost:8000"
 KC_TOKEN_URL="http://localhost:8181/realms/timetable-realm/protocol/openid-connect/token"
 CLIENT_ID="timetable-backend"
-USERNAME="admin1"
-PASSWORD="admin1"
+USERNAME="admin01"
+PASSWORD="admin01"
 
 echo "======================================"
 echo "AUTHENTICATION"
